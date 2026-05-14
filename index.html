@@ -5,9 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SourcerTrack v4 - Gemini Edition</title>
 <link rel="stylesheet" href="styles.css">
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 </head>
 <body>
 
@@ -128,12 +125,6 @@
   <div class="mbox">
     <h2 id="mc-title">Agregar candidato</h2>
     <div class="fnote">El rango salarial solo se habilita desde <strong>Screening</strong>.</div>
-    
-    <div class="fg" style="margin-bottom:12px; background:var(--pbg); padding:10px; border-radius:var(--r); border:1px dashed var(--pborder)">
-      <label style="color:var(--p2); font-weight: 600;">✦ Llenado Automático con CV (PDF)</label>
-      <input type="file" id="f-cv" accept=".pdf" style="margin-top:8px; width:100%; color:var(--txt2); font-size:11px; cursor: pointer;" onchange="processCV()">
-      <div id="cv-status" style="font-size:11px; color:var(--txt3); margin-top:5px"></div>
-    </div>
 
     <div class="frow">
       <div class="fg h"><label>Nombre completo *</label><input type="text" id="f-n" placeholder="Nombre completo"></div>
@@ -329,7 +320,7 @@
             <input type="password" id="cfg-key" style="flex:1;background:var(--bg3);border:1px solid var(--border2);color:var(--txt);border-radius:var(--r);padding:7px 10px;font-family:var(--mono);font-size:12px;outline:none" placeholder="AIzaSy... (Gemini API Key)">
             <button class="btn btn-sm" onclick="saveKey()">Guardar</button>
           </div>
-          <p style="font-size:11px;color:var(--txt3)">Activa el análisis de CV, categorización de descartes y el resumen de insights.</p>
+          <p style="font-size:11px;color:var(--txt3)">Activa la categorización de descartes y el resumen de insights.</p>
 
           <h2 style="font-size:13px;font-weight:600;margin:22px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Datos</h2>
           <div style="display:flex;gap:7px;flex-wrap:wrap">
