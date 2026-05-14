@@ -1,0 +1,28 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dependencies (por si en el futuro agregan npm)
+node_modules/
+
+# Build output (por si migran a Vite)
+dist/
+build/
+
+# Env / secretos
+.env
+.env.local
+*.key
+
+# Backup del archivo original (si lo dejan en la carpeta mientras trabajan)
+gemini-code-*.html
