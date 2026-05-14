@@ -269,20 +269,37 @@ function buildLoginList(){
       <div class="ul-info"><div class="ul-name">${u.name}</div><div class="ul-role">${roleLabel[u.role]||u.role}</div></div>
     </div>`).join('');
 }
+
 function selUser(id){
   selUserId=id; const u=USERS.find(x=>x.id===id);
   document.querySelectorAll('.ul-item').forEach(el=>el.classList.remove('sel'));
   document.getElementById('ul-'+id)?.classList.add('sel');
   const hb=document.getElementById('hat-box'); hatChoice='';
-  if(u.role==='owner'){
+  
+  if(u.role==='owner' || u.role==='supervisor' || u.role==='viewer'){
     hb.classList.add('show');
     document.getElementById('hat-title').textContent=`${u.name.split(' ')[0]}, ¿con qué rol ingresas hoy?`;
-    document.getElementById('hat-owner').classList.remove('sel');
-    document.getElementById('hat-rec').classList.remove('sel');
+    document.querySelectorAll('.hat-opt').forEach(el=>el.classList.remove('sel'));
     document.getElementById('l-btn').disabled=true;
-  } else { hb.classList.remove('show'); hatChoice=u.role; document.getElementById('l-btn').disabled=false; }
+  } else { 
+      hb.classList.remove('show'); 
+      hatChoice=u.role; 
+      document.getElementById('l-btn').disabled=false; 
+  }
 }
-function selHat(h){ hatChoice=h; document.getElementById('hat-owner').classList.toggle('sel',h==='owner'); document.getElementById('hat-rec').classList.toggle('sel',h==='recruiter'); document.getElementById('l-btn').disabled=false; }
+
+function selHat(h){ 
+    hatChoice=h; 
+    document.querySelectorAll('.hat-opt').forEach(el=>el.classList.remove('sel'));
+    
+    let elementId = '';
+    if (h==='owner') elementId = 'hat-owner';
+    else if (h==='recruiter') elementId = 'hat-rec';
+    else if (h==='sourcer') elementId = 'hat-sou';
+    
+    if(elementId) document.getElementById(elementId).classList.add('sel');
+    document.getElementById('l-btn').disabled=false; 
+}
 
 async function doLogin(){
   if(!selUserId||!hatChoice) return;
@@ -300,12 +317,56 @@ function init(){
   toast('Bienvenid@',CU.name,CU.role==='viewer'?'inf':'ok','⬡');
 }
 
-function canSeeCandidate(c){ if(HAT==='supervisor'||HAT==='viewer') return true; if(HAT==='owner') return isMyTeamCandidate(c); if(HAT==='recruiter') return c.rec===CU.name; if(HAT==='sourcer') return c.src===CU.name; return false; }
-function isMyTeamCandidate(c){ const sq=SQUADS.find(s=>s.id===CU.team); if(!sq) return false; const m=[...sq.owners,...sq.recruiters,...sq.sourcers]; return m.includes(c.src)||m.includes(c.rec); }
-function canEdit(c){ if(HAT==='viewer') return false; if(HAT==='supervisor') return true; if(HAT==='owner') return isMyTeamCandidate(c); if(HAT==='recruiter') return c.rec===CU.name; if(HAT==='sourcer') return c.src===CU.name; return false; }
-function canEditFull(c){ return HAT==='owner'||HAT==='supervisor'; }
-function canSeePools(){ return HAT!=='recruiter'; }
-function canAddCandidates(){ return HAT!=='viewer'; }
+// ==========================================
+// SISTEMA ESTRICTO DE ROLES Y VISIBILIDAD
+// ==========================================
+function canSeeCandidate(c) {
+  if (!CU) return false;
+  const role = (HAT || '').toLowerCase();
+  
+  if (role === 'supervisor' || role === 'viewer') return true; 
+  if (role === 'owner') return isMyTeamCandidate(c); 
+  
+  if (role === 'sourcer') {
+     return c.src && c.src.toLowerCase().includes(CU.name.toLowerCase());
+  }
+  if (role === 'recruiter') {
+     return c.rec && c.rec.toLowerCase().includes(CU.name.toLowerCase());
+  }
+  return false;
+}
+
+function isMyTeamCandidate(c) {
+  const sq = SQUADS.find(s => s.id === CU.team);
+  if (!sq) return false;
+  // Un owner ve a los candidatos hunteados por sus sourcers o asignados a sus recruiters
+  const m = [...sq.owners, ...sq.recruiters, ...sq.sourcers];
+  return m.includes(c.src) || m.includes(c.rec);
+}
+
+function canEdit(c) {
+  if (HAT === 'viewer') return false; 
+  if (HAT === 'supervisor') return true; 
+  if (HAT === 'owner') return isMyTeamCandidate(c);
+  if (HAT === 'recruiter') return c.rec === CU.name;
+  if (HAT === 'sourcer') return c.src === CU.name;
+  return false; 
+}
+
+function canEditFull(c) {
+  if (HAT === 'viewer') return false;
+  if (HAT === 'owner' || HAT === 'supervisor') return true;
+  return false;
+}
+
+function canSeePools() {
+  return true; 
+}
+
+function canAddCandidates() {
+  return HAT !== 'viewer'; 
+}
+
 
 function buildSidebar(){
   const poolsEl=document.getElementById('sb-pools');
@@ -332,9 +393,13 @@ function updateFooter(){
   ava.textContent=CU.name.split(' ').map(w=>w[0]).join('').slice(0,2);
   document.getElementById('sb-uname').textContent=CU.name;
   document.getElementById('sb-urole').textContent=roleLabel[HAT]||HAT;
-  document.getElementById('sb-switch').style.display=(CU.role==='owner'&&HAT==='owner')?'':'none';
+  document.getElementById('sb-switch').style.display=(CU.role==='owner'||CU.role==='supervisor')?'':'none';
 }
-function switchHat(){ document.getElementById('login').style.display='flex'; document.getElementById('app').style.display='none'; }
+
+function switchHat(){ 
+    document.getElementById('login').style.display='flex'; 
+    document.getElementById('app').style.display='none'; 
+}
 
 function nav(view, poolId){
   if(poolId!==undefined) currentPool=poolId;
@@ -497,6 +562,7 @@ function openPanel(id){
   else if(HAT==='recruiter'&&editable) editHTML=recruiterForm(c);
   else if(fullEdit&&editable) editHTML=ownerForm(c,salOk,disc);
   else if(!editable) editHTML=`<div class="psec"><div style="font-size:11px;color:var(--txt3);padding:8px 10px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2)">Solo lectura para este candidato.</div></div>`;
+  
   document.getElementById('pi').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
       <div style="display:flex;gap:10px;align-items:center">
@@ -525,8 +591,12 @@ function openPanel(id){
 }
 function closePanel(){ document.getElementById('panel').classList.remove('open'); }
 
+// =====================================
+// FORMULARIOS DE EDICIÓN CON CLASIFICACIÓN IA
+// =====================================
+
 function ownerForm(c,salOk,disc){
-  return `<div class="psec"><div class="pst">Actualizar (Owner)</div><div class="uf">
+  return `<div class="psec"><div class="pst">Actualizar (Owner/Supervisor)</div><div class="uf">
     <label>Estado pipeline</label>
     <select id="u-est">${[...STAGES,'Descartado','No interesado'].map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}</select>
     <label>Situación</label>
@@ -535,9 +605,29 @@ function ownerForm(c,salOk,disc){
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
     `<div class="ro">Rango salarial — disponible desde Screening</div>`}
-    <label>Motivo de descarte</label>
-    <select id="u-mo"><option value="">— sin motivo —</option>${['Renta','Sin interés','Falta de fit','No contesta','Experiencia/Seniority','Se bajó del proceso','Vacante congelada'].map(m=>`<option ${m===c.mo?'selected':''}>${m}</option>`).join('')}</select>
-    <label>Feedback</label><textarea id="u-fb">${c.fb||''}</textarea>
+    
+    <label>Feedback</label>
+    <textarea id="u-fb">${c.fb||''}</textarea>
+    
+    <button type="button" onclick="autoCategorizarDescarte(${c.id})" style="margin-top:5px; margin-bottom: 10px; background:var(--pbg); color:var(--p2); border:1px solid var(--pborder); border-radius:4px; padding:6px; font-size:11px; cursor:pointer; width: 100%;">
+      ✨ Auto-Clasificar Motivo de Descarte con IA
+    </button>
+    
+    <label>Motivo de descarte (Carpeta)</label>
+    <select id="u-mo">
+      <option value="">— sin motivo —</option>
+      <option value="Renta" ${c.mo === 'Renta' ? 'selected' : ''}>Renta</option>
+      <option value="Stack o tecnología" ${c.mo === 'Stack o tecnología' ? 'selected' : ''}>Stack o tecnología</option>
+      <option value="Experiencia" ${c.mo === 'Experiencia' ? 'selected' : ''}>Experiencia</option>
+      <option value="Seniority" ${c.mo === 'Seniority' ? 'selected' : ''}>Seniority</option>
+      <option value="Formación" ${c.mo === 'Formación' ? 'selected' : ''}>Formación</option>
+      <option value="No contesta" ${c.mo === 'No contesta' ? 'selected' : ''}>No contesta</option>
+      <option value="No hay fit" ${c.mo === 'No hay fit' ? 'selected' : ''}>No hay fit</option>
+      <option value="No interés" ${c.mo === 'No interés' ? 'selected' : ''}>No interés</option>
+      <option value="Se bajó del proceso" ${c.mo === 'Se bajó del proceso' ? 'selected' : ''}>Se bajó del proceso</option>
+    </select>
+    <div id="ai-motivo-status" style="font-size:11px; margin-bottom:12px; margin-top:-6px;"></div>
+
     <div style="display:flex;gap:6px">
       <button class="btn btn-p btn-sm" style="flex:1;justify-content:center" onclick="saveUpdate(${c.id},'owner')">Guardar</button>
       ${!disc?`<button class="btn btn-danger btn-sm" onclick="discardC(${c.id})">Descartar</button>`:''}
@@ -570,6 +660,141 @@ function sourcerForm(c,salOk){
     </div>
   </div></div>`;
 }
+
+// =====================================
+// FUNCIONES DE INTELIGENCIA ARTIFICIAL (Nuevas)
+// =====================================
+
+// 1. Extraer datos del CV (PDF) en la pantalla de nuevo candidato
+async function processCV() {
+  const fileInput = document.getElementById('f-cv');
+  const statusDiv = document.getElementById('cv-status');
+  if (!fileInput || !fileInput.files.length) return;
+  
+  if (!API_KEY) {
+    statusDiv.innerHTML = '<span style="color:var(--amber)">⚠ Falta API Key de Gemini en Configuración</span>';
+    return;
+  }
+
+  const file = fileInput.files[0];
+  statusDiv.innerHTML = '<span class="spin" style="display:inline-block; vertical-align:middle; width:10px; height:10px; margin-right:5px"></span> <span style="color:var(--txt2)">Leyendo PDF en el navegador...</span>';
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+    let text = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(item => item.str).join(' ') + ' ';
+    }
+
+    statusDiv.innerHTML = '<span class="spin" style="display:inline-block; vertical-align:middle; width:10px; height:10px; margin-right:5px"></span> <span style="color:var(--txt2)">Gemini está analizando el perfil...</span>';
+
+    const prompt = `Actúa como el mejor Tech Recruiter. Analiza el siguiente texto extraído de un CV.
+    Tu único objetivo es devolver un objeto JSON válido con los siguientes campos:
+    {
+      "nombre": "Nombre completo del candidato",
+      "stack": "Stack tecnológico principal (máximo 5 tecnologías, separadas por coma)",
+      "empresa": "Nombre de la empresa actual o la experiencia más reciente",
+      "seniority": "Estima el seniority (responde solo con uno de estos: L1, L2, L3, L3+)"
+    }
+    No incluyas formato markdown, ni la palabra json, solo devuelve el objeto con las llaves.
+    
+    TEXTO DEL CV:
+    ${text.substring(0, 8000)}`;
+
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+
+    const d = await r.json();
+    if (d.error) throw new Error(d.error.message);
+
+    let rawText = d.candidates[0].content.parts[0].text;
+    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim(); 
+    const result = JSON.parse(rawText);
+
+    if (result.nombre) document.getElementById('f-n').value = result.nombre;
+    if (result.stack) document.getElementById('f-st').value = result.stack;
+    if (result.empresa) document.getElementById('f-em').value = result.empresa;
+    if (result.seniority) {
+        const sel = document.getElementById('f-se');
+        for (let i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].text.includes(result.seniority)) sel.selectedIndex = i;
+        }
+    }
+
+    statusDiv.innerHTML = '<span style="color:var(--green); font-weight:600">✓ CV Analizado. Formulario completado.</span>';
+    toast('Autocompletado con IA', 'Datos extraídos del CV', 'ok', '✦');
+
+  } catch (err) {
+    console.error(err);
+    statusDiv.innerHTML = '<span style="color:var(--red)">⚠ Error al leer documento. Intenta llenar a mano.</span>';
+    toast('Error IA', 'No se pudo extraer la información.', 'err', '⚠');
+  }
+}
+
+// 2. Clasificar motivos de descarte basados en el feedback escrito
+async function autoCategorizarDescarte(idx) {
+  const feedback = document.getElementById('u-fb').value;
+  const statusDiv = document.getElementById('ai-motivo-status');
+  const selectMotivo = document.getElementById('u-mo');
+
+  if (!API_KEY) {
+      statusDiv.innerHTML = '<span style="color:var(--amber)">⚠ Requiere API Key de Gemini.</span>';
+      return;
+  }
+
+  if (!feedback.trim()) {
+    statusDiv.innerHTML = '<span style="color:var(--amber)">⚠ Escribe un feedback en la casilla de arriba primero.</span>';
+    return;
+  }
+
+  statusDiv.innerHTML = '<span style="color:var(--txt2)">✨ Analizando feedback con Gemini...</span>';
+
+  try {
+    const prompt = `Actúa como un Tech Recruiter. Lee este feedback de un candidato descartado y clasifícalo en UNA sola categoría exacta de esta lista: Renta, Stack o tecnología, Experiencia, Seniority, Formación, No contesta, No hay fit, No interés, Se bajó del proceso. 
+    Responde ÚNICAMENTE con el nombre de la categoría elegida, sin puntos ni texto extra.
+    FEEDBACK: "${feedback}"`;
+
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+
+    const d = await r.json();
+    if (d.error) throw new Error(d.error.message);
+
+    let categoriaIA = d.candidates[0].content.parts[0].text.trim();
+    
+    let matchEncontrado = false;
+    for (let i = 0; i < selectMotivo.options.length; i++) {
+      if (selectMotivo.options[i].value.toLowerCase() === categoriaIA.toLowerCase()) {
+        selectMotivo.selectedIndex = i;
+        matchEncontrado = true;
+        break;
+      }
+    }
+
+    if(matchEncontrado){
+        statusDiv.innerHTML = `<span style="color:var(--green)">✓ Clasificado como: <strong>${categoriaIA}</strong></span>`;
+    } else {
+        statusDiv.innerHTML = `<span style="color:var(--amber)">⚠ IA sugirió: "${categoriaIA}". Elige manual.</span>`;
+    }
+
+  } catch (err) {
+    console.error(err);
+    statusDiv.innerHTML = '<span style="color:var(--red)">⚠ Error al conectar con IA.</span>';
+  }
+}
+
+// =====================================
+// LOGICA DE GUARDADO
+// =====================================
 
 async function saveUpdate(id, role) {
   const c = cands.find(x=>x.id===id); if(!c) return;
@@ -608,7 +833,12 @@ async function saveUpdate(id, role) {
 async function discardC(id){
   const c=cands.find(x=>x.id===id); if(!c||!confirm(`¿Descartar a ${c.n}?`)) return;
   const prev=c.est;
-  const changes = { est:'Descartado', dates:{...(c.dates||{}), Descartado: new Date().toISOString().slice(0,10)} };
+  const moValue = document.getElementById('u-mo')?.value || '';
+  const changes = { 
+      est:'Descartado', 
+      mo: moValue,
+      dates:{...(c.dates||{}), Descartado: new Date().toISOString().slice(0,10)} 
+  };
   Object.assign(c, changes); c.dates = changes.dates;
   setSyncStatus('loading');
   try { await apiCall('updateCandidate',{id,changes,changedBy:CU.name}); setSyncStatus('ok'); }
@@ -632,8 +862,9 @@ function openAddCand(){
   document.getElementById('f-rc').innerHTML=allRecruiters().map(r=>`<option>${r}</option>`).join('');
   document.getElementById('f-po').innerHTML=pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   document.getElementById('f-so').value=CU.name;
-  ['f-n','f-l','f-st','f-em','f-eq'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['f-n','f-l','f-st','f-em','f-eq','f-cv'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('f-se').value='';
+  document.getElementById('cv-status').innerHTML='';
   openModal('mb-cand');
 }
 
@@ -672,7 +903,7 @@ async function saveCand(){
 }
 
 // ══════════════════════════════════
-// GEMINI IA INTEGRATION
+// GEMINI IA INTEGRATION - ANALYTICS
 // ══════════════════════════════════
 function renderAnalytics(){
   const all=cands.filter(c=>canSeeCandidate(c));
