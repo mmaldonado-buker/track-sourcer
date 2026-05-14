@@ -154,6 +154,26 @@ tbody td{padding:9px 12px;vertical-align:middle}
 .fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--p)}
 .fg select option{background:var(--bg2)}
 .fg textarea{resize:vertical;min-height:60px}
+
+/* Estilo mejorado para el botón de subir archivos (PDFs) */
+input[type="file"]::file-selector-button {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--txt);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 10px;
+  font-family: var(--font);
+  font-size: 11px;
+  transition: all 0.15s;
+}
+input[type="file"]::file-selector-button:hover {
+  background: var(--bg4);
+  border-color: var(--pborder);
+  color: var(--p2);
+}
+
 .fhint{font-size:10px;color:var(--txt3);margin-top:1px}
 .fnote{font-size:11px;color:var(--txt2);padding:8px 10px;background:var(--pbg);border-radius:var(--r);border-left:2px solid var(--p);margin-bottom:10px}
 .ma{display:flex;justify-content:flex-end;gap:7px;margin-top:14px}
@@ -165,7 +185,9 @@ tbody td{padding:9px 12px;vertical-align:middle}
 .tt{font-size:12px;font-weight:600;margin-bottom:1px}.tm{font-size:11px;color:var(--txt2)}
 @keyframes tin{from{transform:translateX(300px);opacity:0}to{transform:none;opacity:1}}
 #login{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:400}
-.lcard{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r3);width:440px;padding:28px;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+
+/* Ajustado a 500px para que quepan bien los 3 roles en lugar de 2 */
+.lcard{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r3);width:500px;padding:28px;box-shadow:0 8px 40px rgba(0,0,0,.5)}
 .lcard h1{font-size:18px;font-weight:600;margin-bottom:4px;text-align:center}
 .lcard .lsub{font-size:12px;color:var(--txt2);text-align:center;margin-bottom:20px}
 .user-list{display:flex;flex-direction:column;gap:6px;margin-bottom:16px;max-height:340px;overflow-y:auto}
