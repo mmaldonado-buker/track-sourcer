@@ -24,5 +24,28 @@ build/
 .env.local
 *.key
 
-# Backup del archivo original (si lo dejan en la carpeta mientras trabajan)
+# Backup del archivo original
 gemini-code-*.html
+
+# =========================================
+# REGLAS ESPECÍFICAS DE SOURCERTRACK
+# =========================================
+
+# 1. Privacidad de Datos (CVs de candidatos)
+# Ignora cualquier PDF para evitar subir currículums reales por error durante pruebas.
+*.pdf
+cvs/
+CVs_Candidatos/
+test-cvs/
+
+# 2. Exportaciones y Bases de Datos (CSVs)
+# Ignora los archivos que descarga la app al hacer clic en "↓ Exportar CSV" 
+# y tus bases maestras originales para proteger la data de la empresa.
+sourcer_pool_*.csv
+Pool de Candidatos*.csv
+*.csv
+
+# 3. Google Apps Script (Opcional)
+# Si en el futuro conectan su archivo Code.gs a GitHub usando la herramienta "clasp", 
+# esto evitará subir el archivo de configuración que contiene los IDs privados del script.
+.clasp.json
