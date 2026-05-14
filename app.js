@@ -339,7 +339,6 @@ function canSeeCandidate(c) {
 function isMyTeamCandidate(c) {
   const sq = SQUADS.find(s => s.id === CU.team);
   if (!sq) return false;
-  // Un owner ve a los candidatos hunteados por sus sourcers o asignados a sus recruiters
   const m = [...sq.owners, ...sq.recruiters, ...sq.sourcers];
   return m.includes(c.src) || m.includes(c.rec);
 }
@@ -665,7 +664,7 @@ function sourcerForm(c,salOk){
 // FUNCIONES DE INTELIGENCIA ARTIFICIAL (Nuevas)
 // =====================================
 
-// 1. Extraer datos del CV (PDF) en la pantalla de nuevo candidato
+// 1. Extraer datos del CV enviando el PDF directamente a Gemini en Base64
 async function processCV() {
   const fileInput = document.getElementById('f-cv');
   const statusDiv = document.getElementById('cv-status');
@@ -677,44 +676,55 @@ async function processCV() {
   }
 
   const file = fileInput.files[0];
-  statusDiv.innerHTML = '<span class="spin" style="display:inline-block; vertical-align:middle; width:10px; height:10px; margin-right:5px"></span> <span style="color:var(--txt2)">Leyendo PDF en el navegador...</span>';
+  statusDiv.innerHTML = '<span class="spin" style="display:inline-block; vertical-align:middle; width:10px; height:10px; margin-right:5px"></span> <span style="color:var(--txt2)">Enviando documento a Gemini...</span>';
 
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-    let text = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      text += content.items.map(item => item.str).join(' ') + ' ';
-    }
+    // Convertir el archivo a Base64
+    const base64Data = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = error => reject(error);
+    });
 
-    statusDiv.innerHTML = '<span class="spin" style="display:inline-block; vertical-align:middle; width:10px; height:10px; margin-right:5px"></span> <span style="color:var(--txt2)">Gemini está analizando el perfil...</span>';
-
-    const prompt = `Actúa como el mejor Tech Recruiter. Analiza el siguiente texto extraído de un CV.
+    const prompt = `Actúa como el mejor Tech Recruiter. Analiza este CV adjunto.
     Tu único objetivo es devolver un objeto JSON válido con los siguientes campos:
     {
       "nombre": "Nombre completo del candidato",
       "stack": "Stack tecnológico principal (máximo 5 tecnologías, separadas por coma)",
-      "empresa": "Nombre de la empresa actual o la experiencia más reciente",
-      "seniority": "Estima el seniority (responde solo con uno de estos: L1, L2, L3, L3+)"
+      "empresa": "Nombre de la empresa actual o experiencia más reciente",
+      "seniority": "L1, L2, L3 o L3+"
     }
-    No incluyas formato markdown, ni la palabra json, solo devuelve el objeto con las llaves.
-    
-    TEXTO DEL CV:
-    ${text.substring(0, 8000)}`;
+    No incluyas formato markdown, ni texto extra. Solo las llaves y los datos.`;
 
+    // Enviar el PDF a la IA
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType: "application/pdf", data: base64Data } }
+          ]
+        }]
+      })
     });
 
     const d = await r.json();
-    if (d.error) throw new Error(d.error.message);
+    if (d.error) throw new Error("Error de API: " + d.error.message);
 
+    if (!d.candidates || !d.candidates[0].content) {
+        throw new Error("Gemini no pudo leer el documento.");
+    }
+
+    // Limpiar respuesta a JSON
     let rawText = d.candidates[0].content.parts[0].text;
-    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim(); 
+    const start = rawText.indexOf('{');
+    const end = rawText.lastIndexOf('}');
+    if (start === -1 || end === -1) throw new Error("Formato de respuesta incorrecto.");
+    rawText = rawText.substring(start, end + 1);
+
     const result = JSON.parse(rawText);
 
     if (result.nombre) document.getElementById('f-n').value = result.nombre;
@@ -731,9 +741,8 @@ async function processCV() {
     toast('Autocompletado con IA', 'Datos extraídos del CV', 'ok', '✦');
 
   } catch (err) {
-    console.error(err);
-    statusDiv.innerHTML = '<span style="color:var(--red)">⚠ Error al leer documento. Intenta llenar a mano.</span>';
-    toast('Error IA', 'No se pudo extraer la información.', 'err', '⚠');
+    console.error("Detalle del error:", err);
+    statusDiv.innerHTML = `<span style="color:var(--red); font-size:11px;">⚠ Error: ${err.message.substring(0, 70)}</span>`;
   }
 }
 
