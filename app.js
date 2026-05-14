@@ -694,83 +694,12 @@ function sourcerForm(c,salOk){
   </div></div>`;
 }
 
+
 // =====================================
-// FUNCIONES DE INTELIGENCIA ARTIFICIAL (Nuevas)
+// FUNCIONES DE INTELIGENCIA ARTIFICIAL
 // =====================================
 
-// 1. Extraer datos del CV (PDF) en la pantalla de nuevo candidato
-async function processCV() {
-  const fileInput = document.getElementById('f-cv');
-  const statusDiv = document.getElementById('cv-status');
-  if (!fileInput || !fileInput.files.length) return;
-  
-  if (!API_KEY) {
-    statusDiv.innerHTML = '<span style="color:var(--amber)">⚠ Falta API Key de Gemini en Configuración</span>';
-    return;
-  }
-
-  const file = fileInput.files[0];
-  statusDiv.innerHTML = '<span class="spin" style="display:inline-block; vertical-align:middle; width:10px; height:10px; margin-right:5px"></span> <span style="color:var(--txt2)">Leyendo PDF en el navegador...</span>';
-
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-    let text = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      text += content.items.map(item => item.str).join(' ') + ' ';
-    }
-
-    statusDiv.innerHTML = '<span class="spin" style="display:inline-block; vertical-align:middle; width:10px; height:10px; margin-right:5px"></span> <span style="color:var(--txt2)">Gemini está analizando el perfil...</span>';
-
-    const prompt = `Actúa como el mejor Tech Recruiter. Analiza el siguiente texto extraído de un CV.
-    Tu único objetivo es devolver un objeto JSON válido con los siguientes campos:
-    {
-      "nombre": "Nombre completo del candidato",
-      "stack": "Stack tecnológico principal (máximo 5 tecnologías, separadas por coma)",
-      "empresa": "Nombre de la empresa actual o la experiencia más reciente",
-      "seniority": "Estima el seniority (responde solo con uno de estos: L1, L2, L3, L3+)"
-    }
-    No incluyas formato markdown, ni la palabra json, solo devuelve el objeto con las llaves.
-    
-    TEXTO DEL CV:
-    ${text.substring(0, 8000)}`;
-
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-    });
-
-    const d = await r.json();
-    if (d.error) throw new Error(d.error.message);
-
-    let rawText = d.candidates[0].content.parts[0].text;
-    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim(); 
-    const result = JSON.parse(rawText);
-
-    if (result.nombre) document.getElementById('f-n').value = result.nombre;
-    if (result.stack) document.getElementById('f-st').value = result.stack;
-    if (result.empresa) document.getElementById('f-em').value = result.empresa;
-    if (result.seniority) {
-        const sel = document.getElementById('f-se');
-        for (let i = 0; i < sel.options.length; i++) {
-            if (sel.options[i].text.includes(result.seniority)) sel.selectedIndex = i;
-        }
-    }
-
-    statusDiv.innerHTML = '<span style="color:var(--green); font-weight:600">✓ CV Analizado. Formulario completado.</span>';
-    toast('Autocompletado con IA', 'Datos extraídos del CV', 'ok', '✦');
-
-  } catch (err) {
-    console.error(err);
-    statusDiv.innerHTML = '<span style="color:var(--red)">⚠ Error al leer documento. Intenta llenar a mano.</span>';
-    toast('Error IA', 'No se pudo extraer la información.', 'err', '⚠');
-  }
-}
-
-// 2. Clasificar motivos de descarte basados en el feedback escrito
+// Clasificar motivos de descarte basados en el feedback escrito
 async function autoCategorizarDescarte(idx) {
   const feedback = document.getElementById('u-fb').value;
   const statusDiv = document.getElementById('ai-motivo-status');
@@ -913,9 +842,11 @@ function openAddCand(){
   document.getElementById('f-rc').innerHTML=allRecruiters().map(r=>`<option>${r}</option>`).join('');
   document.getElementById('f-po').innerHTML=pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   document.getElementById('f-so').value=CU.name;
-  ['f-n','f-l','f-st','f-em','f-eq','f-cv'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  
+  // Limpiar campos, ya no se busca f-cv ni cv-status
+  ['f-n','f-l','f-st','f-em','f-eq'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('f-se').value='';
-  document.getElementById('cv-status').innerHTML='';
+  
   openModal('mb-cand');
 }
 
