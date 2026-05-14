@@ -257,3 +257,75 @@ input[type="file"]::file-selector-button:hover {
 .step-title{font-size:13px;font-weight:600;margin-bottom:3px}
 .step-desc{font-size:12px;color:var(--txt2);line-height:1.6}
 .step-desc code{background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-family:var(--mono);font-size:11px;color:var(--p3)}
+
+/* =====================================
+   REVIEW VIEW — Revisión de candidatos
+   ===================================== */
+.rev-section { margin-bottom: 8px; }
+.rev-sec-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--txt3);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.rev-list { display: flex; flex-direction: column; gap: 10px; }
+.rev-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 14px;
+  transition: border-color .15s;
+}
+.rev-card:hover { border-color: var(--border2); }
+.rev-card-top {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.rev-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--txt);
+  margin-bottom: 3px;
+}
+.rev-meta {
+  font-size: 11px;
+  color: var(--txt2);
+  margin-bottom: 4px;
+}
+.rev-fb {
+  font-size: 11px;
+  color: var(--txt3);
+  font-style: italic;
+  margin-top: 4px;
+  border-left: 2px solid var(--border2);
+  padding-left: 8px;
+}
+.rev-actions { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.rev-comment {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--txt);
+  border-radius: var(--r);
+  padding: 7px 9px;
+  font-size: 11px;
+  font-family: var(--font);
+  resize: vertical;
+  min-height: 52px;
+  box-sizing: border-box;
+  outline: none;
+}
+.rev-comment:focus { border-color: var(--p); }
+.btn-green {
+  background: rgba(45,212,160,.12);
+  color: var(--green);
+  border-color: rgba(45,212,160,.3);
+}
+.btn-green:hover { background: rgba(45,212,160,.22); }
