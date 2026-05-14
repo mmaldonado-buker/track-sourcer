@@ -119,7 +119,7 @@ async function syncNow() {
     localStorage.setItem('st4_cands', JSON.stringify(cands));
     localStorage.setItem('st4_pools', JSON.stringify(pools));
     setSyncStatus('ok'); buildSidebar();
-    const views = ['pool','pipeline','kanban','analytics'];
+    const views = ['pool','pipeline','kanban','analytics','review'];
     views.forEach(v => {
       const el = document.getElementById('v-' + v);
       if (el && el.style.display !== 'none') {
@@ -312,7 +312,7 @@ async function doLogin(){
 
 function init(){
   buildSidebar(); updateFooter(); checkStaleNow();
-  if(HAT==='recruiter') nav('pipeline');
+  if(HAT==='recruiter') nav('review');
   else { currentPool=pools[0]?.id||1; nav('pool'); }
   toast('Bienvenid@',CU.name,CU.role==='viewer'?'inf':'ok','⬡');
 }
@@ -339,6 +339,7 @@ function canSeeCandidate(c) {
 function isMyTeamCandidate(c) {
   const sq = SQUADS.find(s => s.id === CU.team);
   if (!sq) return false;
+  // Un owner ve a los candidatos hunteados por sus sourcers o asignados a sus recruiters
   const m = [...sq.owners, ...sq.recruiters, ...sq.sourcers];
   return m.includes(c.src) || m.includes(c.rec);
 }
@@ -383,6 +384,9 @@ function buildSidebar(){
   const ppf=document.getElementById('pipe-pool-f');
   if(ppf) ppf.innerHTML='<option value="">Todos los pools</option>'+pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   updateStaleSidebar();
+  // update review badge
+  const nbr=document.getElementById('nb-review');
+  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c)&&(c.est==='Screening'||c.est==='Contactado')&&c.sit==='Por revisar').length;
 }
 
 function updateFooter(){
@@ -423,6 +427,10 @@ function nav(view, poolId){
     document.getElementById('v-analytics').style.display='flex';
     document.getElementById('ni-analytics')?.classList.add('active');
     renderAnalytics();
+  } else if(view==='review'){
+    document.getElementById('v-review').style.display='flex';
+    document.getElementById('ni-review')?.classList.add('active');
+    renderReview();
   } else if(view==='config'){
     document.getElementById('v-config').style.display='flex';
     document.getElementById('ni-config')?.classList.add('active');
@@ -634,28 +642,54 @@ function ownerForm(c,salOk,disc){
   </div></div>`;
 }
 function recruiterForm(c){
-  return `<div class="psec"><div class="pst">Actualizar (Recruiter)</div><div class="uf">
-    <label>Situación *</label>
+  const isRejected = c.sit === 'Rechazado';
+  const sitColor = {Aprobado:'var(--green)', Rechazado:'var(--red)', 'Por revisar':'var(--amber)'}[c.sit] || 'var(--txt3)';
+  return `<div class="psec"><div class="pst">Revisión de candidato (Recruiter)</div><div class="uf">
+    ${c.sit !== 'Rechazado' ? `
+    <div style="font-size:11px;color:var(--txt3);padding:8px 10px;background:var(--bg3);border-radius:var(--r);margin-bottom:8px;border-left:2px solid var(--p)">
+      Aprueba o deja en revisión para que el sourcer pueda iniciar el screening. Si rechazas, el candidato queda archivado.
+    </div>` : `
+    <div style="font-size:11px;color:var(--red);padding:8px 10px;background:rgba(224,92,92,.08);border-radius:var(--r);margin-bottom:8px;border-left:2px solid var(--red)">
+      Candidato rechazado — no avanzará en el proceso.
+    </div>`}
+    <label>Decisión</label>
     <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>`<option ${s===c.sit?'selected':''}>${s}</option>`).join('')}</select>
-    <label>Comentarios *</label>
-    <textarea id="u-fb" placeholder="Justificación...">${c.fb||''}</textarea>
-    <button class="btn btn-p btn-sm" style="width:100%;justify-content:center" onclick="saveUpdate(${c.id},'recruiter')">Guardar</button>
+    <label>Comentarios</label>
+    <textarea id="u-fb" placeholder="Justificación o notas para el sourcer...">${c.fb||''}</textarea>
+    <button class="btn btn-p btn-sm" style="width:100%;justify-content:center" onclick="saveUpdate(${c.id},'recruiter')">Guardar decisión</button>
   </div></div>`;
 }
 function sourcerForm(c,salOk){
+  const canAdvance = c.sit === 'Aprobado' || c.sit === 'Por revisar';
+  const isRejected = c.sit === 'Rechazado';
+  // Sourcer sólo puede avanzar el estado si el recruiter aprobó o dejó en revisión
+  const stagesAllowed = canAdvance ? [...STAGES,'Descartado'] : [c.est];
   return `<div class="psec"><div class="pst">Actualizar (Sourcer)</div><div class="uf">
+    ${isRejected ? `
+    <div style="font-size:11px;color:var(--red);padding:9px 11px;background:rgba(224,92,92,.08);border-radius:var(--r);border-left:2px solid var(--red);margin-bottom:8px">
+      ✕ Candidato <strong>rechazado</strong> por el recruiter — no puede avanzar en el proceso.
+      ${c.fb ? `<div style="margin-top:4px;color:var(--txt3)">Motivo: "${c.fb}"</div>` : ''}
+    </div>` : c.sit === 'Por revisar' ? `
+    <div style="font-size:11px;color:var(--amber);padding:9px 11px;background:rgba(240,169,64,.08);border-radius:var(--r);border-left:2px solid var(--amber);margin-bottom:8px">
+      ⏸ En revisión por el recruiter — ya puedes iniciar el screening mientras decide.
+      ${c.fb ? `<div style="margin-top:4px;color:var(--txt3)">"${c.fb}"</div>` : ''}
+    </div>` : c.sit === 'Aprobado' ? `
+    <div style="font-size:11px;color:var(--green);padding:9px 11px;background:rgba(45,212,160,.08);border-radius:var(--r);border-left:2px solid var(--green);margin-bottom:8px">
+      ✓ Candidato <strong>aprobado</strong> por el recruiter — puedes avanzar el proceso.
+      ${c.fb ? `<div style="margin-top:4px;color:var(--txt3)">"${c.fb}"</div>` : ''}
+    </div>` : ''}
     <label>Estado pipeline</label>
-    <select id="u-est">${[...STAGES,'Descartado'].map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}</select>
-    <label>Situación</label>
-    <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>`<option ${s===c.sit?'selected':''}>${s}</option>`).join('')}</select>
+    <select id="u-est" ${isRejected?'disabled':''}>
+      ${stagesAllowed.map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}
+    </select>
     <label>Equipo sugerido</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
     `<div class="ro">Rango salarial — desde Screening</div>`}
-    <label>Feedback</label><textarea id="u-fb">${c.fb||''}</textarea>
+    <label>Feedback / Notas</label><textarea id="u-fb">${c.fb||''}</textarea>
     <div style="display:flex;gap:6px;flex-direction:column">
-      <button class="btn btn-p btn-sm" style="justify-content:center" onclick="saveUpdate(${c.id},'sourcer')">Guardar cambios</button>
-      <button class="btn btn-amber btn-sm" style="justify-content:center" onclick="openEmailModal(${c.id})">📧 Notificar al Recruiter</button>
+      ${!isRejected?`<button class="btn btn-p btn-sm" style="justify-content:center" onclick="saveUpdate(${c.id},'sourcer')">Guardar cambios</button>`:''}
+      ${c.sit==='Por revisar'?`<button class="btn btn-amber btn-sm" style="justify-content:center" onclick="openEmailModal(${c.id})">📧 Notificar al Recruiter</button>`:''}
     </div>
   </div></div>`;
 }
@@ -664,7 +698,7 @@ function sourcerForm(c,salOk){
 // FUNCIONES DE INTELIGENCIA ARTIFICIAL (Nuevas)
 // =====================================
 
-// 1. Extraer datos del CV enviando el PDF directamente a Gemini en Base64
+// 1. Extraer datos del CV (PDF) en la pantalla de nuevo candidato
 async function processCV() {
   const fileInput = document.getElementById('f-cv');
   const statusDiv = document.getElementById('cv-status');
@@ -676,55 +710,44 @@ async function processCV() {
   }
 
   const file = fileInput.files[0];
-  statusDiv.innerHTML = '<span class="spin" style="display:inline-block; vertical-align:middle; width:10px; height:10px; margin-right:5px"></span> <span style="color:var(--txt2)">Enviando documento a Gemini...</span>';
+  statusDiv.innerHTML = '<span class="spin" style="display:inline-block; vertical-align:middle; width:10px; height:10px; margin-right:5px"></span> <span style="color:var(--txt2)">Leyendo PDF en el navegador...</span>';
 
   try {
-    // Convertir el archivo a Base64
-    const base64Data = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = error => reject(error);
-    });
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+    let text = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(item => item.str).join(' ') + ' ';
+    }
 
-    const prompt = `Actúa como el mejor Tech Recruiter. Analiza este CV adjunto.
+    statusDiv.innerHTML = '<span class="spin" style="display:inline-block; vertical-align:middle; width:10px; height:10px; margin-right:5px"></span> <span style="color:var(--txt2)">Gemini está analizando el perfil...</span>';
+
+    const prompt = `Actúa como el mejor Tech Recruiter. Analiza el siguiente texto extraído de un CV.
     Tu único objetivo es devolver un objeto JSON válido con los siguientes campos:
     {
       "nombre": "Nombre completo del candidato",
       "stack": "Stack tecnológico principal (máximo 5 tecnologías, separadas por coma)",
-      "empresa": "Nombre de la empresa actual o experiencia más reciente",
-      "seniority": "L1, L2, L3 o L3+"
+      "empresa": "Nombre de la empresa actual o la experiencia más reciente",
+      "seniority": "Estima el seniority (responde solo con uno de estos: L1, L2, L3, L3+)"
     }
-    No incluyas formato markdown, ni texto extra. Solo las llaves y los datos.`;
+    No incluyas formato markdown, ni la palabra json, solo devuelve el objeto con las llaves.
+    
+    TEXTO DEL CV:
+    ${text.substring(0, 8000)}`;
 
-    // Enviar el PDF a la IA
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: prompt },
-            { inlineData: { mimeType: "application/pdf", data: base64Data } }
-          ]
-        }]
-      })
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
 
     const d = await r.json();
-    if (d.error) throw new Error("Error de API: " + d.error.message);
+    if (d.error) throw new Error(d.error.message);
 
-    if (!d.candidates || !d.candidates[0].content) {
-        throw new Error("Gemini no pudo leer el documento.");
-    }
-
-    // Limpiar respuesta a JSON
     let rawText = d.candidates[0].content.parts[0].text;
-    const start = rawText.indexOf('{');
-    const end = rawText.lastIndexOf('}');
-    if (start === -1 || end === -1) throw new Error("Formato de respuesta incorrecto.");
-    rawText = rawText.substring(start, end + 1);
-
+    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim(); 
     const result = JSON.parse(rawText);
 
     if (result.nombre) document.getElementById('f-n').value = result.nombre;
@@ -741,8 +764,9 @@ async function processCV() {
     toast('Autocompletado con IA', 'Datos extraídos del CV', 'ok', '✦');
 
   } catch (err) {
-    console.error("Detalle del error:", err);
-    statusDiv.innerHTML = `<span style="color:var(--red); font-size:11px;">⚠ Error: ${err.message.substring(0, 70)}</span>`;
+    console.error(err);
+    statusDiv.innerHTML = '<span style="color:var(--red)">⚠ Error al leer documento. Intenta llenar a mano.</span>';
+    toast('Error IA', 'No se pudo extraer la información.', 'err', '⚠');
   }
 }
 
@@ -813,6 +837,23 @@ async function saveUpdate(id, role) {
   if(role==='recruiter'){
     changes.sit = document.getElementById('u-sit').value;
     changes.fb  = document.getElementById('u-fb').value;
+  } else if(role==='sourcer'){
+    // Bloquear avance si el recruiter rechazó
+    if(c.sit === 'Rechazado'){
+      toast('Sin permisos','El recruiter rechazó este candidato — no puede avanzar','err','✕');
+      return;
+    }
+    const newEst = document.getElementById('u-est')?.value;
+    if(newEst) {
+      changes.est = newEst;
+      const newDates = {...(c.dates||{})};
+      if(!newDates[newEst]) newDates[newEst] = new Date().toISOString().slice(0,10);
+      changes.dates = newDates;
+    }
+    // Sourcer no cambia la situación (sit la maneja el recruiter)
+    changes.eq  = document.getElementById('u-eq')?.value  || c.eq;
+    changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
+    const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
   } else {
     const newEst = document.getElementById('u-est')?.value;
     if(newEst) {
@@ -863,6 +904,7 @@ function afterEdit(id,prev,newEst){
   if(document.getElementById('v-pool').style.display==='flex') renderPool();
   if(document.getElementById('v-pipeline').style.display==='flex') renderPipeline();
   if(document.getElementById('v-kanban').style.display==='flex') renderKanban();
+  if(document.getElementById('v-review')?.style.display==='flex') renderReview();
   openPanel(id);
 }
 
@@ -1011,6 +1053,112 @@ async function aiCand(id){
     const text=d.candidates?.[0]?.content?.parts?.[0]?.text||'Sin respuesta';
     out.textContent=text;
   } catch(e){ out.textContent='Error de conexión con Gemini API.'; }
+}
+
+
+// =====================================
+// VISTA DE REVISIÓN (RECRUITER)
+// =====================================
+function getReviewCands(){
+  return cands.filter(c =>
+    canSeeCandidate(c) &&
+    (c.est === 'Screening' || c.est === 'Contactado') &&
+    c.sit !== 'Rechazado'
+  );
+}
+
+function renderReview(){
+  const pending  = getReviewCands().filter(c => c.sit === 'Por revisar');
+  const approved = getReviewCands().filter(c => c.sit === 'Aprobado');
+  // Note: Rechazado is already excluded by getReviewCands()
+  const rb = document.getElementById('review-body'); if(!rb) return;
+
+  const mkCard = (c, showActions) => {
+    const staleWarn = isStale(c) ? `<span style="color:var(--amber);font-size:10px"> ⚠${daysInStage(c)}d</span>` : '';
+    return `<div class="rev-card" id="rcard-${c.id}">
+      <div class="rev-card-top">
+        <div style="flex:1;min-width:0">
+          <div class="rev-name">${c.n}${staleWarn}</div>
+          <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
+          ${c.fb ? `<div class="rev-fb">"${c.fb}"</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+          ${estB(c.est)}
+          <button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver detalle</button>
+        </div>
+      </div>
+      ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px;margin-bottom:8px;display:inline-flex">↗ LinkedIn</a>` : ''}
+      ${showActions ? `
+      <div class="rev-actions">
+        <textarea class="rev-comment" id="rev-fb-${c.id}" placeholder="Comentario (opcional antes de decidir)...">${c.fb||''}</textarea>
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar → Entrevista Inicial</button>
+          <button class="btn btn-sm" style="justify-content:center;border-color:var(--amber);color:var(--amber)" onclick="reviewAction(${c.id},'hold')">⏸ En revisión</button>
+          <button class="btn btn-danger btn-sm" onclick="reviewAction(${c.id},'reject')">✕ Rechazar</button>
+        </div>
+      </div>` : `
+      <div style="font-size:11px;color:var(--green);margin-top:6px">✓ Aprobado — ya está en pipeline activo</div>`}
+    </div>`;
+  };
+
+  rb.innerHTML = `
+    <div class="mg" style="margin-bottom:16px">
+      <div class="mc"><div class="mcl">Para revisar</div><div class="mcv mv-a">${pending.length}</div><div class="mcs">pendientes</div></div>
+      <div class="mc"><div class="mcl">Aprobados hoy</div><div class="mcv mv-g">${approved.length}</div><div class="mcs">en pipeline</div></div>
+      <div class="mc"><div class="mcl">Rechazados</div><div class="mcv mv-r">${cands.filter(c=>canSeeCandidate(c)&&c.sit==='Rechazado').length}</div><div class="mcs">total</div></div>
+    </div>
+
+    ${pending.length ? `
+    <div class="rev-section">
+      <div class="rev-sec-title">⏳ Pendientes de revisión <span class="nb">${pending.length}</span></div>
+      <div class="rev-list">${pending.map(c=>mkCard(c,true)).join('')}</div>
+    </div>` : `
+    <div style="text-align:center;padding:40px 20px;color:var(--txt3)">
+      <div style="font-size:28px;margin-bottom:8px">✓</div>
+      <div style="font-size:13px">Sin candidatos pendientes de revisión</div>
+      <div style="font-size:11px;margin-top:4px">Los sourcers agregarán nuevos candidatos al pool</div>
+    </div>`}
+
+    ${approved.length ? `
+    <div class="rev-section" style="margin-top:20px">
+      <div class="rev-sec-title">✓ Aprobados — en pipeline <span class="nb" style="background:rgba(45,212,160,0.15);color:var(--green)">${approved.length}</span></div>
+      <div class="rev-list">${approved.map(c=>mkCard(c,false)).join('')}</div>
+    </div>` : ''}
+  `;
+}
+
+async function reviewAction(id, action){
+  const c = cands.find(x=>x.id===id); if(!c) return;
+  const fbEl = document.getElementById(`rev-fb-${id}`);
+  const fb = fbEl ? fbEl.value.trim() : c.fb||'';
+  const changes = { fb };
+  const today = new Date().toISOString().slice(0,10);
+
+  if(action === 'approve'){
+    // Recruiter aprueba: queda en su estado actual (Contactado/Screening),
+    // sitación pasa a Aprobado → el sourcer puede ahora avanzar el proceso
+    changes.sit = 'Aprobado';
+  } else if(action === 'reject'){
+    changes.sit = 'Rechazado';
+    // Rechazado no avanza en pipeline — solo cambia la situación
+  } else {
+    changes.sit = 'Por revisar';
+  }
+
+  Object.assign(c, changes);
+  if(changes.dates) c.dates = changes.dates;
+
+  setSyncStatus('loading');
+  try {
+    await apiCall('updateCandidate', {id, changes, changedBy: CU.name});
+    setSyncStatus('ok');
+  } catch(err){ setSyncStatus('error','⚠ Guardado local'); }
+
+  const labels = {approve:'Aprobado ✓ — pasa a Entrevista Inicial', reject:'Rechazado', hold:'Marcado en revisión'};
+  const types  = {approve:'ok', reject:'err', hold:'wrn'};
+  toast(c.n, labels[action], types[action], action==='approve'?'⬆':'↩');
+  buildSidebar();
+  renderReview();
 }
 
 function renderConfig(){
