@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SourcerTrack v4 - Gemini Edition</title>
 <link rel="stylesheet" href="styles.css">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 </head>
 <body>
 
@@ -74,20 +77,26 @@
       <span id="login-db-status" class="sync-status sync-loading"><span class="spin" style="width:8px;height:8px;border-width:1.5px"></span> Verificando...</span>
     </div>
     <div class="user-list" id="user-list"></div>
+    
     <div class="hat-box" id="hat-box">
       <h3 id="hat-title">¿Con qué rol ingresas hoy?</h3>
       <div class="hat-opts">
         <div class="hat-opt" id="hat-owner" onclick="selHat('owner')">
-          <div class="ho-icon">◈</div><div class="ho-name">Owner</div>
-          <div class="ho-desc">Pool General · Historial · Equipo completo</div>
+          <div class="ho-icon">◈</div><div class="ho-name">Owner / Sup</div>
+          <div class="ho-desc">Visión de equipo y reportes</div>
         </div>
         <div class="hat-opt" id="hat-rec" onclick="selHat('recruiter')">
           <div class="ho-icon">◇</div><div class="ho-name">Recruiter</div>
-          <div class="ho-desc">Pipeline Activo · Fichas de candidatos</div>
+          <div class="ho-desc">Pipeline Activo y Entrevistas</div>
+        </div>
+        <div class="hat-opt" id="hat-sou" onclick="selHat('sourcer')">
+          <div class="ho-icon">⌖</div><div class="ho-name">Sourcer</div>
+          <div class="ho-desc">Hunting y Pool General</div>
         </div>
       </div>
     </div>
-    <button class="btn btn-p" style="width:100%;justify-content:center;padding:9px" id="l-btn" onclick="doLogin()" disabled>Ingresar →</button>
+
+    <button class="btn btn-p" style="width:100%;justify-content:center;padding:9px;margin-top:15px;" id="l-btn" onclick="doLogin()" disabled>Ingresar →</button>
   </div>
 </div>
 
@@ -119,6 +128,13 @@
   <div class="mbox">
     <h2 id="mc-title">Agregar candidato</h2>
     <div class="fnote">El rango salarial solo se habilita desde <strong>Screening</strong>.</div>
+    
+    <div class="fg" style="margin-bottom:12px; background:var(--pbg); padding:10px; border-radius:var(--r); border:1px dashed var(--pborder)">
+      <label style="color:var(--p2); font-weight: 600;">✦ Llenado Automático con CV (PDF)</label>
+      <input type="file" id="f-cv" accept=".pdf" style="margin-top:8px; width:100%; color:var(--txt2); font-size:11px; cursor: pointer;" onchange="processCV()">
+      <div id="cv-status" style="font-size:11px; color:var(--txt3); margin-top:5px"></div>
+    </div>
+
     <div class="frow">
       <div class="fg h"><label>Nombre completo *</label><input type="text" id="f-n" placeholder="Nombre completo"></div>
       <div class="fg h"><label>LinkedIn</label><input type="text" id="f-l" placeholder="linkedin.com/in/..."></div>
@@ -208,7 +224,7 @@
         <div class="uava" id="sb-ava"></div>
         <div style="min-width:0"><div class="uname" id="sb-uname"></div><div class="urole" id="sb-urole"></div></div>
       </div>
-      <button class="switch-btn" id="sb-switch" onclick="switchHat()" style="display:none">↩ Cambiar rol</button>
+      <button class="switch-btn" id="sb-switch" onclick="switchHat()">↩ Cambiar usuario / rol</button>
     </div>
   </nav>
 
@@ -298,7 +314,7 @@
             <input type="password" id="cfg-key" style="flex:1;background:var(--bg3);border:1px solid var(--border2);color:var(--txt);border-radius:var(--r);padding:7px 10px;font-family:var(--mono);font-size:12px;outline:none" placeholder="AIzaSy... (Gemini API Key)">
             <button class="btn btn-sm" onclick="saveKey()">Guardar</button>
           </div>
-          <p style="font-size:11px;color:var(--txt3)">Activa el análisis profundo de candidatos y el resumen de insights.</p>
+          <p style="font-size:11px;color:var(--txt3)">Activa el análisis de CV, categorización de descartes y el resumen de insights.</p>
 
           <h2 style="font-size:13px;font-weight:600;margin:22px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Datos</h2>
           <div style="display:flex;gap:7px;flex-wrap:wrap">
