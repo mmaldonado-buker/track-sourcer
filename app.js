@@ -174,17 +174,22 @@ const SQUADS = [
   {id:'C', name:'Squad C', owners:['Laura Rodriguez'],  recruiters:['Joaquín Maragaño'], sourcers:['Matías Maldonado']},
 ];
 
-const DEFAULT_POOLS = [
-  {id:1, name:'Devs', desc:'Pool general de ingenieros de software', color:'#5b9cf0'},
-  {id:2, name:'PLTF', desc:'DevOps, DevSecOps, DevEx y afines',      color:'#7c6ef0'},
-  {id:3, name:'EM',   desc:'Engineering Managers por célula',        color:'#e06cc0'},
-];
-
 const DEFAULT_THRESHOLDS = { 'Contactado':7, 'Screening':7, 'Entrevista Inicial':10, 'Entrevista EM':10, 'Misión':14 };
 const STAGES   = ['Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
-const ACTIVE_S = new Set(['Entrevista Inicial','Entrevista EM','Misión']);
 const DISC_S   = new Set(['Descartado','No interesado']);
 const SCREEN_S = new Set(['Screening','Entrevista Inicial','Entrevista EM','Misión']);
+
+// NUEVO: Función para determinar si el candidato entra en el Pipeline / Kanban
+function isActiveInPipeline(c) {
+  if (DISC_S.has(c.est)) return false; 
+  if (c.sit === 'Rechazado') return false; 
+  
+  if (['Entrevista Inicial','Entrevista EM','Misión'].includes(c.est)) return true;
+  
+  if (c.sit === 'Aprobado') return true;
+  
+  return false;
+}
 
 const today_d = new Date();
 function daysAgo(n){ const d=new Date(today_d); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
@@ -385,11 +390,16 @@ function buildSidebar(){
   if(ppf) ppf.innerHTML='<option value="">Todos los pools</option>'+pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   updateStaleSidebar();
   
+  const btnReview = document.getElementById('ni-review');
+  if (btnReview) {
+      btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
+  }
+  
   const nbr=document.getElementById('nb-review');
-  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c)&&(c.est==='Screening'||c.est==='Contactado')&&c.sit==='Por revisar').length;
+  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c)&&c.sit==='Por revisar').length;
   
   const nbpipe = document.getElementById('nb-pipe');
-  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&ACTIVE_S.has(c.est)).length;
+  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)).length;
 }
 
 function updateFooter(){
@@ -525,30 +535,34 @@ function renderPipeline(){
       <td style="font-size:11px;color:var(--txt2)">${c.rec||'—'}</td>
       <td onclick="event.stopPropagation()"><button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Editar</button></td>
     </tr>`).join(''):`<tr><td colspan="9" class="nr">Sin candidatos en pipeline activo.</td></tr>`;
-  const all=cands.filter(c=>ACTIVE_S.has(c.est)&&canSeeCandidate(c));
+  
+  const all=cands.filter(c=>isActiveInPipeline(c)&&canSeeCandidate(c));
   document.getElementById('pipe-mg').innerHTML=`
     <div class="mc"><div class="mcl">En pipeline</div><div class="mcv mv-p">${all.length}</div><div class="mcs">activos</div></div>
-    <div class="mc"><div class="mcl">Ent. Inicial</div><div class="mcv mv-a">${all.filter(c=>c.est==='Entrevista Inicial').length}</div></div>
-    <div class="mc"><div class="mcl">Ent. EM</div><div class="mcv" style="color:var(--pink)">${all.filter(c=>c.est==='Entrevista EM').length}</div></div>
-    <div class="mc"><div class="mcl">Misión</div><div class="mcv mv-g">${all.filter(c=>c.est==='Misión').length}</div></div>`;
-  const sc=['Entrevista Inicial','Entrevista EM','Misión'], cnt=sc.map(s=>all.filter(c=>c.est===s).length), mx=Math.max(...cnt,1);
-  const cl=['#a78bfa','#e06cc0','#2dd4a0'];
-  document.getElementById('pipe-funnel').innerHTML=`<h3 style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">Embudo</h3>`+
+    <div class="mc"><div class="mcl">Sourcing</div><div class="mcv mv-a">${all.filter(c=>c.est==='Contactado'||c.est==='Screening').length}</div><div class="mcs">Cont/Scr</div></div>
+    <div class="mc"><div class="mcl">Reclutamiento</div><div class="mcv" style="color:var(--pink)">${all.filter(c=>c.est==='Entrevista Inicial'||c.est==='Entrevista EM').length}</div><div class="mcs">Entrevistas</div></div>
+    <div class="mc"><div class="mcl">Misión</div><div class="mcv mv-g">${all.filter(c=>c.est==='Misión').length}</div><div class="mcs">Final</div></div>`;
+  
+  const sc=['Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
+  const cnt=sc.map(s=>all.filter(c=>c.est===s).length), mx=Math.max(...cnt,1);
+  const cl=['#60a5fa','#f0a940','#a78bfa','#e06cc0','#2dd4a0'];
+  document.getElementById('pipe-funnel').innerHTML=`<h3 style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">Embudo Total</h3>`+
     sc.map((s,i)=>`<div class="br-row"><div class="br-label">${s}</div><div class="br-track"><div class="br-fill" style="width:${Math.max(cnt[i]/mx*100,3)}%;background:${cl[i]}22;color:${cl[i]}">${cnt[i]||''}</div></div><div style="font-size:10px;color:var(--txt3);width:18px">${cnt[i]}</div></div>`).join('');
 }
 
 function renderKanban(){
-  const stages=['Entrevista Inicial','Entrevista EM','Misión'];
-  const clrs={'Entrevista Inicial':'#a78bfa','Entrevista EM':'#e06cc0','Misión':'#2dd4a0'};
+  const stages=['Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
+  const clrs={'Contactado':'#60a5fa','Screening':'#f0a940','Entrevista Inicial':'#a78bfa','Entrevista EM':'#e06cc0','Misión':'#2dd4a0'};
+  
   document.getElementById('kb-board').innerHTML=stages.map(stage=>{
-    const cards=cands.filter(c=>c.est===stage&&canSeeCandidate(c));
+    const cards=cands.filter(c=>c.est===stage && canSeeCandidate(c) && isActiveInPipeline(c));
     return `<div class="kc"><div class="kch"><div class="kct" style="color:${clrs[stage]}">${stage}</div><div class="kcc">${cards.length}</div></div>
       <div class="kcards">${cards.length?cards.map(c=>`
         <div class="kcard${isStale(c)?' stale-card-k':''}" onclick="openPanel(${c.id})">
           <div class="kn">${c.n}${isStale(c)?' <span style="color:var(--amber)">⚠</span>':''}</div>
           <div class="km">${c.emp||'—'} · ${c.s||'?'} · ${daysInStage(c)??'—'}d</div>
           <div style="margin-top:4px">${chips(c.stack)}</div>
-        </div>`).join(''):`<div class="ke">Sin candidatos</div>`}
+        </div>`).join(''):`<div class="ke">Vacío</div>`}
       </div></div>`;
   }).join('');
 }
