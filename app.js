@@ -235,6 +235,13 @@ function isStale(c){ if(DISC_S.has(c.est)) return false; const d=daysInStage(c);
 function fmtDate(d){ if(!d) return '—'; return new Date(d).toLocaleDateString('es-CL',{day:'numeric',month:'short'}); }
 function daysLabel(n,thresh){ if(n===null) return '—'; const cls=n>=thresh?(n>=thresh*1.5?'danger':'warn'):'ok'; return `<span class="tl-days ${cls}">${n}d</span>`; }
 function getStaleCands(){ return cands.filter(c=>!DISC_S.has(c.est)&&isStale(c)&&canSeeCandidate(c)); }
+function updateStaleSidebar(){
+  const stale=getStaleCands();
+  const nb=document.getElementById('nb-stale');
+  if(nb) nb.textContent=stale.length;
+  const sec=document.getElementById('sb-stale-sec');
+  if(sec) sec.style.display=stale.length?'':'none';
+}
 
 function checkStaleNow(){
   const stale=getStaleCands();
@@ -581,8 +588,16 @@ function getReviewCands(){
 }
 
 function renderReview(){
-  const pending = getReviewCands();
   const rb = document.getElementById('review-body'); if(!rb) return;
+  // Bloqueo duro: sourcer nunca puede ver ni usar esta vista
+  if(HAT === 'sourcer'){
+    rb.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--txt3)">
+      <div style="font-size:24px;margin-bottom:8px">⛔</div>
+      <div style="font-size:13px">Solo recruiters y owners pueden revisar candidatos</div>
+    </div>`;
+    return;
+  }
+  const pending = getReviewCands();
 
   const mkCard = (c) => {
     const staleWarn = isStale(c) ? `<span style="color:var(--amber);font-size:10px"> ⚠${daysInStage(c)}d</span>` : '';
