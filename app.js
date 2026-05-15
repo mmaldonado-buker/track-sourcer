@@ -233,18 +233,32 @@ function checkStaleNow(){
   toast(`${stale.length} estancado${stale.length>1?'s':''}`, 'Ver en sidebar','wrn','⚠');
 }
 
-function updateStaleSidebar(){
-  const stale=getStaleCands();
-  const sec=document.getElementById('sb-stale-sec'), list=document.getElementById('sb-stale-list'), nb=document.getElementById('nb-stale');
-  if(!sec) return;
-  if(stale.length){
-    sec.style.display=''; nb.textContent=stale.length;
-    list.innerHTML=stale.slice(0,4).map(c=>`
-      <div class="ni" style="flex-direction:column;align-items:flex-start;gap:2px;border:1px solid var(--aborder);background:var(--abg);border-radius:var(--r);margin-bottom:3px;padding:7px 8px" onclick="openPanel(${c.id})">
-        <div style="font-size:11px;font-weight:600;color:var(--amber)">${c.n}</div>
-        <div style="font-size:10px;color:var(--txt3)">${c.est} · ${daysInStage(c)}d sin actualizar</div>
-      </div>`).join('');
-  } else { sec.style.display='none'; }
+function buildSidebar(){
+  const poolsEl=document.getElementById('sb-pools');
+  if(!canSeePools()){ document.getElementById('sb-pool-sec').style.display='none'; }
+  else if (poolsEl) {
+    document.getElementById('sb-pool-sec').style.display='';
+    poolsEl.innerHTML=pools.map(p=>`
+      <button class="ni ni-pool-${p.id}" onclick="nav('pool',${p.id})">
+        <span class="dot" style="background:${p.color}"></span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.name}</span>
+        <span class="nb live">${cands.filter(c=>Number(c.pid)===Number(p.id)&&canSeeCandidate(c)).length}</span>
+      </button>`).join('');
+  }
+  document.querySelectorAll('#btn-add-cand,#btn-add-pipe').forEach(b=>b.style.display=canAddCandidates()?'':'none');
+  const ppf=document.getElementById('pipe-pool-f');
+  if(ppf) ppf.innerHTML='<option value="">Todos los pools</option>'+pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  updateStaleSidebar();
+  
+  const btnReview = document.getElementById('ni-review');
+  if (btnReview) btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
+  
+  // ARREGLO: El contador solo suma los "Por revisar" ignorando los descartados y rechazados
+  const nbr=document.getElementById('nb-review');
+  if(nbr) nbr.textContent=cands.filter(c => canSeeCandidate(c) && c.sit==='Por revisar' && !DISC_S.has(c.est)).length;
+  
+  const nbpipe = document.getElementById('nb-pipe');
+  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)).length;
 }
 
 function buildStaleEmail(c){
@@ -548,12 +562,8 @@ function renderKanban(){
 }
 
 function getReviewCands(){
-  // Solo candidatos pendientes de aprobación que NO estén descartados ni sean "No interesado"
-  return cands.filter(c => {
-    const isPending = (c.sit === 'Por revisar');
-    const isNotDiscarded = !DISC_S.has(c.est);
-    return canSeeCandidate(c) && isPending && isNotDiscarded;
-  });
+  // ARREGLO: Filtra los que están "Por revisar", pero oculta a los que ya están en el basurero (Descartados o No interesados)
+  return cands.filter(c => canSeeCandidate(c) && c.sit === 'Por revisar' && !DISC_S.has(c.est));
 }
 
 function renderReview(){
