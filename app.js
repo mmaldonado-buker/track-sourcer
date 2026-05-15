@@ -185,8 +185,13 @@ const SCREEN_S = new Set(['Screening','Entrevista Inicial','Entrevista EM','Misi
 function isActiveInPipeline(c) {
   if (DISC_S.has(c.est)) return false; 
   if (c.sit === 'Rechazado') return false; 
-  if (['Entrevista Inicial','Entrevista EM','Misión'].includes(c.est)) return true;
-  if (c.sit === 'Aprobado') return true;
+  
+  // Si ya avanzó a Screening o más adelante, ESTÁ ACTIVO automáticamente.
+  if (['Screening','Entrevista Inicial','Entrevista EM','Misión'].includes(c.est)) return true;
+  
+  // Si está recién "Contactado", SOLO entra al pipeline si ya fue Aprobado.
+  if (c.est === 'Contactado' && c.sit === 'Aprobado') return true;
+  
   return false;
 }
 
@@ -348,27 +353,31 @@ function canAddCandidates() { return HAT !== 'viewer'; }
 function buildSidebar(){
   const poolsEl=document.getElementById('sb-pools');
   if(!canSeePools()){ document.getElementById('sb-pool-sec').style.display='none'; }
-  else if (poolsEl) {
+  else {
     document.getElementById('sb-pool-sec').style.display='';
     poolsEl.innerHTML=pools.map(p=>`
       <button class="ni ni-pool-${p.id}" onclick="nav('pool',${p.id})">
         <span class="dot" style="background:${p.color}"></span>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.name}</span>
-        <span class="nb live">${cands.filter(c => Number(c.pid) === Number(p.id) && canSeeCandidate(c)).length}</span>
+        <span class="nb live">${cands.filter(c=>c.pid===p.id&&canSeeCandidate(c)).length}</span>
       </button>`).join('');
   }
   document.querySelectorAll('#btn-add-cand,#btn-add-pipe').forEach(b=>b.style.display=canAddCandidates()?'':'none');
+  const ppf=document.getElementById('pipe-pool-f');
+  if(ppf) ppf.innerHTML='<option value="">Todos los pools</option>'+pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   updateStaleSidebar();
   
   const btnReview = document.getElementById('ni-review');
-  if (btnReview) btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
+  if (btnReview) {
+      btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
+  }
   
   const nbr=document.getElementById('nb-review');
-  // AQUÍ EL ARREGLO: Solo cuenta si NO está en el Set de Descartados (DISC_S)
-  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c) && c.sit==='Por revisar' && !DISC_S.has(c.est)).length;
+  // ARREGLO: Solo cuenta los que están "Por revisar" y ESTRICTAMENTE en la etapa "Contactado"
+  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c) && c.sit==='Por revisar' && c.est==='Contactado').length;
   
   const nbpipe = document.getElementById('nb-pipe');
-  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c) && isActiveInPipeline(c)).length;
+  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)).length;
 }
 
 function updateFooter(){
@@ -562,8 +571,8 @@ function renderKanban(){
 }
 
 function getReviewCands(){
-  // ARREGLO: Filtra los que están "Por revisar", pero oculta a los que ya están en el basurero (Descartados o No interesados)
-  return cands.filter(c => canSeeCandidate(c) && c.sit === 'Por revisar' && !DISC_S.has(c.est));
+  // ARREGLO: Solo trae a la bandeja de revisión los recién creados ("Contactado") que falten por revisar.
+  return cands.filter(c => canSeeCandidate(c) && c.sit === 'Por revisar' && c.est === 'Contactado');
 }
 
 function renderReview(){
