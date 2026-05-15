@@ -10,7 +10,7 @@ async function sheetsAPI(action, payload = null) {
   const opts = { method: 'GET' };
   if (payload) {
     opts.method = 'POST';
-    opts.headers = { 'Content-Type': 'text/plain' }; 
+    opts.headers = { 'Content-Type': 'text/plain' };
     opts.body = JSON.stringify(payload);
   }
   const resp = await fetch(url.toString(), opts);
@@ -117,7 +117,7 @@ async function syncNow() {
     const [cResp, pResp] = await Promise.all([sheetsAPI('getCandidates'), sheetsAPI('getPools')]);
     cands = cResp.candidates || []; 
     
-    // Forzar el uso de los nombres de pools correctos si el backend devuelve los viejos o está vacío
+    // Forzar el uso de los nombres de pools correctos si el backend devuelve los viejos
     let fetchedPools = pResp.pools || [];
     if (fetchedPools.length === 0 || fetchedPools.some(p => p.name === 'Software Engineers' || p.name === 'Tribu Plataforma')) {
         fetchedPools = JSON.parse(JSON.stringify(DEFAULT_POOLS));
@@ -126,8 +126,8 @@ async function syncNow() {
     
     localStorage.setItem('st4_cands', JSON.stringify(cands));
     localStorage.setItem('st4_pools', JSON.stringify(pools));
-    
     setSyncStatus('ok'); buildSidebar();
+    
     const views = ['pool','pipeline','kanban','analytics','review'];
     views.forEach(v => {
       const el = document.getElementById('v-' + v);
@@ -199,7 +199,7 @@ let CU = null, HAT = '', API_KEY = '';
 let pools = [], cands = [];
 let currentPool = null, pipeStageF = '';
 let thresholds = {}, emailMap = {};
-let selUserId = null, hatChoice = '';
+let selUserId = null;
 
 // STORAGE
 function loadLocalConfig() {
@@ -208,18 +208,17 @@ function loadLocalConfig() {
   USERS.forEach(u => { emailMap[u.name] = u.email; });
   API_KEY = localStorage.getItem('st4_key') || '';
   
+  // Limpiador de Caché de Pools
   let sp = localStorage.getItem('st4_pools');
   if (sp && (sp.includes('Software Engineers') || sp.includes('Tribu Plataforma'))) {
       sp = null;
       localStorage.removeItem('st4_pools');
   }
-  
   pools = sp ? JSON.parse(sp) : JSON.parse(JSON.stringify(DEFAULT_POOLS));
   
   const sc = localStorage.getItem('st4_cands');
   cands = sc ? JSON.parse(sc) : JSON.parse(JSON.stringify(SEED));
 }
-
 function saveLocal() { localStorage.setItem('st4_thresh', JSON.stringify(thresholds)); }
 
 // HELPERS
@@ -278,47 +277,32 @@ function copyEmail(){
   navigator.clipboard.writeText(text).then(()=>{ document.getElementById('copy-done').style.display='inline'; toast('Email copiado','Abre Gmail y pega el contenido','ok','📋'); });
 }
 
-
-// ==========================================
-// LOGIN DIRECTO (SIN PASOS INTERMEDIOS)
-// ==========================================
-
+// LOGIN DIRECTO AUTOMÁTICO
 function buildLoginList() {
-  const sorted = [...USERS].sort((a,b) => a.name.localeCompare(b.name));
-  const container = document.getElementById('user-list');
-  if(!container) return;
-  container.innerHTML = sorted.map(u => `
+  const roleLabel={supervisor:'Supervisor',viewer:'Tech Lead (Solo Lectura)',owner:'Owner',recruiter:'Recruiter',sourcer:'Sourcer'};
+  const roleOrder=['supervisor','viewer','owner','recruiter','sourcer'];
+  const sorted=[...USERS].sort((a,b)=>roleOrder.indexOf(a.role)-roleOrder.indexOf(b.role));
+  document.getElementById('user-list').innerHTML=sorted.map(u=>`
     <div class="ul-item" onclick="directLogin('${u.id}')">
-      <div class="ul-ava" style="background:${u.color}22;color:${u.color}">${u.name.split(' ').map(w=>w[0]).join('')}</div>
-      <div class="ul-info">
-        <div class="ul-name">${u.name}</div>
-        <div class="ul-role">${u.role === 'viewer' ? 'TECH LEAD (READ ONLY)' : u.role.toUpperCase()}</div>
-      </div>
+      <div class="ul-ava" style="background:${u.color}22;color:${u.color}">${u.name.split(' ').map(w=>w[0]).join('').slice(0,2)}</div>
+      <div class="ul-info"><div class="ul-name">${u.name}</div><div class="ul-role">${roleLabel[u.role]||u.role}</div></div>
     </div>`).join('');
 }
 
-// Funcion que se dispara con un clic para entrar inmediatamente
-async function directLogin(id) {
-  CU = USERS.find(u => u.id === id);
-  HAT = CU.role; 
-  document.getElementById('login').style.display = 'none';
-  document.getElementById('app').style.display = 'flex';
-  
-  loadLocalConfig();
-  init();
-  if (!IS_OFFLINE) setTimeout(()=>syncNow(), 300);
+async function directLogin(id){
+  CU=USERS.find(u=>u.id===id); 
+  HAT=CU.role;
+  document.getElementById('login').style.display='none';
+  document.getElementById('app').style.display='flex';
+  loadLocalConfig(); init();
+  if(!IS_OFFLINE) setTimeout(()=>syncNow(), 300);
 }
-
-// Funciones heredadas mantenidas por si acaso el HTML trata de llamarlas
-function selUser(id){ directLogin(id); }
-function selHat(h){ /* Obsoleta pero segura */ }
-function doLogin(){ /* Obsoleta pero segura */ }
 
 function init(){
   buildSidebar(); updateFooter(); checkStaleNow();
-  if(HAT === 'sourcer') { currentPool = pools[0]?.id || 1; nav('pool'); }
-  else nav('pipeline');
-  toast('Bienvenid@', CU.name, CU.role === 'viewer' ? 'inf' : 'ok', '⬡');
+  if(HAT==='recruiter' || HAT==='owner') nav('review');
+  else { currentPool=pools[0]?.id||1; nav('pool'); }
+  toast('Bienvenid@',CU.name,CU.role==='viewer'?'inf':'ok','⬡');
 }
 
 // ==========================================
@@ -357,14 +341,8 @@ function canEditFull(c) {
   return false;
 }
 
-function canSeePools() {
-  return true; 
-}
-
-function canAddCandidates() {
-  return HAT !== 'viewer'; 
-}
-
+function canSeePools() { return true; }
+function canAddCandidates() { return HAT !== 'viewer'; }
 
 function buildSidebar(){
   const poolsEl=document.getElementById('sb-pools');
@@ -382,14 +360,16 @@ function buildSidebar(){
   const ppf=document.getElementById('pipe-pool-f');
   if(ppf) ppf.innerHTML='<option value="">Todos los pools</option>'+pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   updateStaleSidebar();
+  
   const nbr=document.getElementById('nb-review');
   if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c)&&(c.est==='Screening'||c.est==='Contactado')&&c.sit==='Por revisar').length;
-  const nbp=document.getElementById('nb-pipe');
-  if(nbp) nbp.textContent=cands.filter(c=>canSeeCandidate(c)&&ACTIVE_S.has(c.est)).length;
+  
+  const nbpipe = document.getElementById('nb-pipe');
+  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&ACTIVE_S.has(c.est)).length;
 }
 
 function updateFooter(){
-  const roleLabel={owner:'Owner',recruiter:'Recruiter',sourcer:'Sourcer',supervisor:'Supervisor',viewer:'Viewer (solo lectura)'};
+  const roleLabel={owner:'Owner',recruiter:'Recruiter',sourcer:'Sourcer',supervisor:'Supervisor',viewer:'Tech Lead'};
   const ava=document.getElementById('sb-ava');
   ava.style.background=CU.color+'22'; ava.style.color=CU.color;
   ava.textContent=CU.name.split(' ').map(w=>w[0]).join('').slice(0,2);
@@ -398,9 +378,7 @@ function updateFooter(){
   document.getElementById('sb-switch').style.display='block';
 }
 
-function switchHat(){ 
-    location.reload();
-}
+function switchHat(){ location.reload(); }
 
 function nav(view, poolId){
   if(poolId!==undefined) currentPool=poolId;
@@ -455,6 +433,7 @@ function staleDaysCell(c){
 function allRecruiters(){ return [...new Set(SQUADS.flatMap(s=>[...s.owners,...s.recruiters]))]; }
 
 function getPoolCands(){ return cands.filter(c=>c.pid===currentPool&&canSeeCandidate(c)); }
+
 function renderPoolView(){
   const pool=pools.find(p=>p.id===currentPool); if(!pool) return;
   document.getElementById('pool-title').textContent=pool.name;
@@ -472,6 +451,7 @@ function renderPoolView(){
     <div class="mc"><div class="mcl" style="color:var(--amber)">Estancados</div><div class="mcv mv-r">${stale}</div><div class="mcs">sin actualizar</div></div>`;
   renderPool();
 }
+
 function renderPool(){
   const q=(document.getElementById('ps-q')?.value||'').toLowerCase();
   const fs=document.getElementById('ps-sit')?.value||'';
@@ -560,12 +540,12 @@ function openPanel(id){
     return `<div class="tl-item"><div class="tl-dot ${isCur?'cur':isDone?'done':'empty'}"></div>
       <div style="flex:1"><span class="tl-stage">${s}</span> ${d?`<span class="tl-date">${fmtDate(d)}</span>`:''} ${isCur&&days!==null?daysLabel(days,thresh):''}</div></div>`;
   }).join('')}${disc?`<div class="tl-item"><div class="tl-dot" style="background:var(--red)"></div><div><span class="tl-stage" style="color:var(--red)">${c.est}</span> <span class="tl-date">${fmtDate(c.dates?.[c.est])}</span></div></div>`:''}</div>`;
+  
   let editHTML='';
-  if(HAT==='viewer') editHTML=`<div class="psec"><div style="font-size:11px;color:var(--txt3);padding:8px 10px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2)">Solo lectura para este candidato.</div></div>`;
-  else if(HAT==='sourcer'&&editable) editHTML=sourcerForm(c,salOk);
-  else if(HAT==='recruiter'&&editable) editHTML=recruiterForm(c);
-  else if(fullEdit&&editable) editHTML=ownerForm(c,salOk,disc);
-  else if(!editable) editHTML=`<div class="psec"><div style="font-size:11px;color:var(--txt3);padding:8px 10px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2)">Solo lectura para este candidato.</div></div>`;
+  if(HAT==='viewer' || !editable) editHTML=`<div class="psec"><div style="font-size:11px;color:var(--txt3);padding:8px 10px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2)">Solo lectura para este candidato.</div></div>`;
+  else if(HAT==='sourcer') editHTML=sourcerForm(c,salOk);
+  else if(HAT==='recruiter') editHTML=recruiterForm(c);
+  else editHTML=ownerForm(c,salOk,disc);
   
   document.getElementById('pi').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
@@ -595,20 +575,11 @@ function openPanel(id){
 }
 function closePanel(){ document.getElementById('panel').classList.remove('open'); }
 
-// =====================================
-// FORMULARIOS DE EDICIÓN CON CLASIFICACIÓN IA
-// =====================================
-
 function ownerForm(c,salOk,disc){
-  const poolOptions = pools.map(p => 
-    `<option value="${p.id}" ${p.id === c.pid ? 'selected' : ''}>${p.name}</option>`
-  ).join('');
-
+  const poolOptions = pools.map(p => `<option value="${p.id}" ${p.id === c.pid ? 'selected' : ''}>${p.name}</option>`).join('');
   return `<div class="psec"><div class="pst">Actualizar (Owner/Supervisor)</div><div class="uf">
-    
     <label style="color:var(--p2); font-weight:600;">Pool / Categoría del Candidato</label>
     <select id="u-po" style="margin-bottom:12px; border-color:var(--pborder); background:var(--bg3);">${poolOptions}</select>
-
     <label>Estado pipeline</label>
     <select id="u-est">${[...STAGES,'Descartado','No interesado'].map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}</select>
     <label>Situación</label>
@@ -617,14 +588,11 @@ function ownerForm(c,salOk,disc){
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
     `<div class="ro">Rango salarial — disponible desde Screening</div>`}
-    
     <label>Feedback</label>
     <textarea id="u-fb">${c.fb||''}</textarea>
-    
     <button type="button" onclick="autoCategorizarDescarte(${c.id})" style="margin-top:5px; margin-bottom: 10px; background:var(--pbg); color:var(--p2); border:1px solid var(--pborder); border-radius:4px; padding:6px; font-size:11px; cursor:pointer; width: 100%;">
       ✨ Auto-Clasificar Motivo de Descarte con IA
     </button>
-    
     <label>Motivo de descarte (Carpeta)</label>
     <select id="u-mo">
       <option value="">— sin motivo —</option>
@@ -639,16 +607,15 @@ function ownerForm(c,salOk,disc){
       <option value="Se bajó del proceso" ${c.mo === 'Se bajó del proceso' ? 'selected' : ''}>Se bajó del proceso</option>
     </select>
     <div id="ai-motivo-status" style="font-size:11px; margin-bottom:12px; margin-top:-6px;"></div>
-
     <div style="display:flex;gap:6px">
       <button class="btn btn-p btn-sm" style="flex:1;justify-content:center" onclick="saveUpdate(${c.id},'owner')">Guardar</button>
       ${!disc?`<button class="btn btn-danger btn-sm" onclick="discardC(${c.id})">Descartar</button>`:''}
     </div>
   </div></div>`;
 }
+
 function recruiterForm(c){
   const isRejected = c.sit === 'Rechazado';
-  const sitColor = {Aprobado:'var(--green)', Rechazado:'var(--red)', 'Por revisar':'var(--amber)'}[c.sit] || 'var(--txt3)';
   return `<div class="psec"><div class="pst">Revisión de candidato (Recruiter)</div><div class="uf">
     ${c.sit !== 'Rechazado' ? `
     <div style="font-size:11px;color:var(--txt3);padding:8px 10px;background:var(--bg3);border-radius:var(--r);margin-bottom:8px;border-left:2px solid var(--p)">
@@ -664,24 +631,21 @@ function recruiterForm(c){
     <button class="btn btn-p btn-sm" style="width:100%;justify-content:center" onclick="saveUpdate(${c.id},'recruiter')">Guardar decisión</button>
   </div></div>`;
 }
+
 function sourcerForm(c,salOk){
   const canAdvance = c.sit === 'Aprobado' || c.sit === 'Por revisar';
   const isRejected = c.sit === 'Rechazado';
-  // Sourcer sólo puede avanzar el estado si el recruiter aprobó o dejó en revisión
   const stagesAllowed = canAdvance ? [...STAGES,'Descartado'] : [c.est];
   return `<div class="psec"><div class="pst">Actualizar (Sourcer)</div><div class="uf">
     ${isRejected ? `
     <div style="font-size:11px;color:var(--red);padding:9px 11px;background:rgba(224,92,92,.08);border-radius:var(--r);border-left:2px solid var(--red);margin-bottom:8px">
       ✕ Candidato <strong>rechazado</strong> por el recruiter — no puede avanzar en el proceso.
-      ${c.fb ? `<div style="margin-top:4px;color:var(--txt3)">Motivo: "${c.fb}"</div>` : ''}
     </div>` : c.sit === 'Por revisar' ? `
     <div style="font-size:11px;color:var(--amber);padding:9px 11px;background:rgba(240,169,64,.08);border-radius:var(--r);border-left:2px solid var(--amber);margin-bottom:8px">
       ⏸ En revisión por el recruiter — ya puedes iniciar el screening mientras decide.
-      ${c.fb ? `<div style="margin-top:4px;color:var(--txt3)">"${c.fb}"</div>` : ''}
     </div>` : c.sit === 'Aprobado' ? `
     <div style="font-size:11px;color:var(--green);padding:9px 11px;background:rgba(45,212,160,.08);border-radius:var(--r);border-left:2px solid var(--green);margin-bottom:8px">
       ✓ Candidato <strong>aprobado</strong> por el recruiter — puedes avanzar el proceso.
-      ${c.fb ? `<div style="margin-top:4px;color:var(--txt3)">"${c.fb}"</div>` : ''}
     </div>` : ''}
     <label>Estado pipeline</label>
     <select id="u-est" ${isRejected?'disabled':''}>
@@ -699,9 +663,7 @@ function sourcerForm(c,salOk){
   </div></div>`;
 }
 
-// =====================================
-// FUNCIONES DE INTELIGENCIA ARTIFICIAL
-// =====================================
+// Clasificar motivos de descarte basados en el feedback escrito
 async function autoCategorizarDescarte(idx) {
   const feedback = document.getElementById('u-fb').value;
   const statusDiv = document.getElementById('ai-motivo-status');
@@ -755,10 +717,6 @@ async function autoCategorizarDescarte(idx) {
     statusDiv.innerHTML = '<span style="color:var(--red)">⚠ Error al conectar con IA.</span>';
   }
 }
-
-// =====================================
-// LOGICA DE GUARDADO
-// =====================================
 
 async function saveUpdate(id, role) {
   const c = cands.find(x=>x.id===id); if(!c) return;
@@ -889,9 +847,7 @@ async function saveCand(){
   } finally { btn.disabled=false; btn.textContent='Guardar candidato'; }
 }
 
-// =====================================
 // VISTA DE REVISIÓN (RECRUITER)
-// =====================================
 function getReviewCands(){
   return cands.filter(c =>
     canSeeCandidate(c) &&
@@ -990,9 +946,7 @@ async function reviewAction(id, action){
   renderReview();
 }
 
-// =====================================
 // GEMINI IA INTEGRATION - ANALYTICS
-// =====================================
 function renderAnalytics(){
   const all=cands.filter(c=>canSeeCandidate(c));
   const byPool=pools.map(p=>({p,n:all.filter(c=>c.pid===p.id).length}));
@@ -1165,19 +1119,21 @@ document.addEventListener('keydown',e=>{
 
 setInterval(()=>{ if(document.getElementById('app').style.display!=='none'&&!IS_OFFLINE) syncNow(); }, 120000);
 
-// ¡ESTA ES LA LÓGICA DE INICIO QUE FALTABA!
+// ==========================================
+// ARRANQUE AUTOMÁTICO DE LA APLICACIÓN
+// ==========================================
 document.addEventListener('DOMContentLoaded', () => {
-    if(SHEETS_URL){
-      document.getElementById('setup').style.display='none';
-      document.getElementById('login').style.display='flex';
-      buildLoginList();
-      fetch(`${SHEETS_URL}?action=ping`)
-        .then(r=>r.json())
-        .then(d=>{ if(d.ok) setSyncStatus('ok'); else setSyncStatus('error','⚠ Script no responde'); })
-        .catch(()=>setSyncStatus('error','⚠ Sin conexión'));
-    } else {
-      document.getElementById('setup').style.display='flex';
-      document.getElementById('login').style.display='none';
-      buildLoginList();
-    }
+  if (SHEETS_URL) {
+    document.getElementById('setup').style.display = 'none';
+    document.getElementById('login').style.display = 'flex';
+    buildLoginList();
+    fetch(`${SHEETS_URL}?action=ping`)
+      .then(r => r.json())
+      .then(d => { if(d.ok) setSyncStatus('ok'); else setSyncStatus('error','⚠ Script no responde'); })
+      .catch(() => setSyncStatus('error', '⚠ Sin conexión'));
+  } else {
+    document.getElementById('setup').style.display = 'flex';
+    document.getElementById('login').style.display = 'none';
+    buildLoginList();
+  }
 });
