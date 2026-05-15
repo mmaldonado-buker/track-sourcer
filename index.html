@@ -197,10 +197,16 @@
       </button>
       <div id="sb-stale-sec" style="display:none">
         <div class="sb-div"></div>
-        <div class="sbl" style="color:var(--amber)">⚠ Estancados <span class="nb danger" id="nb-stale">0</span></div>
-        <div id="sb-stale-list"></div>
+        <button class="ni" onclick="nav('stale')" id="ni-stale" style="color:var(--amber)">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Estancados <span class="nb danger" id="nb-stale">0</span>
+        </button>
       </div>
       <div class="sb-div"></div>
+      <button class="ni" onclick="nav('today')" id="ni-today">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="16" r="1" fill="currentColor"/></svg>
+        Mi día <span class="nb" id="nb-today">0</span>
+      </button>
       <button class="ni" onclick="nav('analytics')" id="ni-analytics">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         Analytics IA
@@ -224,6 +230,27 @@
   </nav>
 
   <div id="main">
+    <div id="v-today" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+      <div class="topbar">
+        <h1 id="today-title">Mi día</h1>
+        <div style="display:flex;gap:7px;align-items:center">
+          <button class="btn btn-sm" onclick="syncNow()">↻ Sync</button>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px" id="today-body"></div>
+    </div>
+
+    <div id="v-stale" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+      <div class="topbar">
+        <h1>Candidatos Estancados</h1>
+        <div style="display:flex;gap:7px;align-items:center">
+          <span style="font-size:11px;color:var(--amber)">Sin actualización según umbrales configurados</span>
+          <button class="btn btn-sm" onclick="syncNow()">↻ Sync</button>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px" id="stale-body"></div>
+    </div>
+
     <div id="v-pool" style="display:none;flex-direction:column;flex:1;overflow:hidden">
       <div class="topbar">
         <h1 id="pool-title">Pool</h1>
