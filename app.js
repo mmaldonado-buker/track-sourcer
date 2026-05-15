@@ -340,7 +340,7 @@ function buildSidebar(){
       <button class="ni ni-pool-${p.id}" onclick="nav('pool',${p.id})">
         <span class="dot" style="background:${p.color}"></span>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.name}</span>
-        <span class="nb live">${cands.filter(c=> Number(c.pid) == Number(p.id) && canSeeCandidate(c)).length}</span>
+        <span class="nb live">${cands.filter(c=>Number(c.pid)===Number(p.id)&&canSeeCandidate(c)).length}</span>
       </button>`).join('');
   }
   document.querySelectorAll('#btn-add-cand,#btn-add-pipe').forEach(b=>b.style.display=canAddCandidates()?'':'none');
@@ -349,10 +349,13 @@ function buildSidebar(){
   updateStaleSidebar();
   
   const btnReview = document.getElementById('ni-review');
-  if (btnReview) btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
+  if (btnReview) {
+      btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
+  }
   
   const nbr=document.getElementById('nb-review');
-  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c)&&c.sit==='Por revisar').length;
+  // NUEVO: Ahora ignora a los candidatos que ya fueron Descartados (!DISC_S.has(c.est))
+  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c) && c.sit==='Por revisar' && !DISC_S.has(c.est)).length;
   
   const nbpipe = document.getElementById('nb-pipe');
   if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)).length;
@@ -549,7 +552,8 @@ function renderKanban(){
 }
 
 function getReviewCands(){
-  return cands.filter(c => canSeeCandidate(c) && c.sit === 'Por revisar');
+  // NUEVO: Filtra a los candidatos "Por revisar", pero oculta estrictamente a los que están Descartados o No interesados
+  return cands.filter(c => canSeeCandidate(c) && c.sit === 'Por revisar' && !DISC_S.has(c.est));
 }
 
 function renderReview(){
