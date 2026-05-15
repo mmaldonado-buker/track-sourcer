@@ -127,6 +127,7 @@ async function syncNow() {
         if (v === 'pipeline') renderPipeline();
         if (v === 'kanban') renderKanban();
         if (v === 'analytics') renderAnalytics();
+        if (v === 'review') renderReview();
       }
     });
     toast('Sincronizado', `${cands.length} candidatos · ${pools.length} pools`, 'ok', '↻');
@@ -603,19 +604,24 @@ function closePanel(){ document.getElementById('panel').classList.remove('open')
 // =====================================
 
 function ownerForm(c,salOk,disc){
+  const poolOptions = pools.map(p => 
+    `<option value="${p.id}" ${p.id === c.pid ? 'selected' : ''}>${p.name}</option>`
+  ).join('');
+
   return `<div class="psec"><div class="pst">Actualizar (Owner/Supervisor)</div><div class="uf">
     
-    <label>Pool / Tipo de cargo</label>
-    <select id="u-po">
-      ${pools.map(p => `<option value="${p.id}" ${p.id === c.pid ? 'selected' : ''}>${p.name}</option>`).join('')}
-    </select>
+    <label style="color:var(--p2); font-weight:600;">Pool / Categoría del Candidato</label>
+    <select id="u-pid" style="margin-bottom:12px; border-color:var(--pborder);">${poolOptions}</select>
 
     <label>Estado pipeline</label>
     <select id="u-est">${[...STAGES,'Descartado','No interesado'].map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}</select>
+    
     <label>Situación</label>
     <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>`<option ${s===c.sit?'selected':''}>${s}</option>`).join('')}</select>
+    
     <label>Equipo sugerido (texto libre)</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
+    
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
     `<div class="ro">Rango salarial — disponible desde Screening</div>`}
     
@@ -647,6 +653,7 @@ function ownerForm(c,salOk,disc){
     </div>
   </div></div>`;
 }
+
 function recruiterForm(c){
   const isRejected = c.sit === 'Rechazado';
   const sitColor = {Aprobado:'var(--green)', Rechazado:'var(--red)', 'Por revisar':'var(--amber)'}[c.sit] || 'var(--txt3)';
@@ -665,6 +672,7 @@ function recruiterForm(c){
     <button class="btn btn-p btn-sm" style="width:100%;justify-content:center" onclick="saveUpdate(${c.id},'recruiter')">Guardar decisión</button>
   </div></div>`;
 }
+
 function sourcerForm(c,salOk){
   const canAdvance = c.sit === 'Aprobado' || c.sit === 'Por revisar';
   const isRejected = c.sit === 'Rechazado';
@@ -699,7 +707,6 @@ function sourcerForm(c,salOk){
     </div>
   </div></div>`;
 }
-
 
 // =====================================
 // FUNCIONES DE INTELIGENCIA ARTIFICIAL
@@ -790,6 +797,7 @@ async function saveUpdate(id, role) {
     changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
     const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
   } else {
+    // ROL OWNER / SUPERVISOR
     const newEst = document.getElementById('u-est')?.value;
     if(newEst) {
       changes.est = newEst;
@@ -797,17 +805,18 @@ async function saveUpdate(id, role) {
       if(!newDates[newEst]) newDates[newEst] = new Date().toISOString().slice(0,10);
       changes.dates = newDates;
     }
+    
+    // Capturar el cambio de pool (PID) desde el selector
+    const newPid = document.getElementById('u-pid');
+    if(newPid && parseInt(newPid.value) !== c.pid) {
+       changes.pid = parseInt(newPid.value);
+    }
+
     changes.sit = document.getElementById('u-sit')?.value || c.sit;
     changes.eq  = document.getElementById('u-eq')?.value  || c.eq;
     changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
     if(role!=='sourcer') changes.mo = document.getElementById('u-mo')?.value || c.mo;
     const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
-    
-    // NUEVO: Capturar cambio de pool para el Owner
-    const po = document.getElementById('u-po');
-    if(po && parseInt(po.value) !== c.pid) {
-       changes.pid = parseInt(po.value);
-    }
   }
 
   Object.assign(c, changes);
@@ -855,7 +864,7 @@ function openAddCand(){
   document.getElementById('f-po').innerHTML=pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   document.getElementById('f-so').value=CU.name;
   
-  // Limpiar campos
+  // Limpiar campos de texto, ya no buscamos f-cv ni cv-status
   ['f-n','f-l','f-st','f-em','f-eq'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('f-se').value='';
   
