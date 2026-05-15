@@ -604,6 +604,12 @@ function closePanel(){ document.getElementById('panel').classList.remove('open')
 
 function ownerForm(c,salOk,disc){
   return `<div class="psec"><div class="pst">Actualizar (Owner/Supervisor)</div><div class="uf">
+    
+    <label>Pool / Tipo de cargo</label>
+    <select id="u-po">
+      ${pools.map(p => `<option value="${p.id}" ${p.id === c.pid ? 'selected' : ''}>${p.name}</option>`).join('')}
+    </select>
+
     <label>Estado pipeline</label>
     <select id="u-est">${[...STAGES,'Descartado','No interesado'].map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}</select>
     <label>Situación</label>
@@ -796,6 +802,12 @@ async function saveUpdate(id, role) {
     changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
     if(role!=='sourcer') changes.mo = document.getElementById('u-mo')?.value || c.mo;
     const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
+    
+    // NUEVO: Capturar cambio de pool para el Owner
+    const po = document.getElementById('u-po');
+    if(po && parseInt(po.value) !== c.pid) {
+       changes.pid = parseInt(po.value);
+    }
   }
 
   Object.assign(c, changes);
@@ -843,7 +855,7 @@ function openAddCand(){
   document.getElementById('f-po').innerHTML=pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   document.getElementById('f-so').value=CU.name;
   
-  // Limpiar campos, ya no se busca f-cv ni cv-status
+  // Limpiar campos
   ['f-n','f-l','f-st','f-em','f-eq'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('f-se').value='';
   
