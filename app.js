@@ -465,23 +465,30 @@ function staleDaysCell(c){
   return d>=thresh ? `<span class="stale-tag"> ${d}d · >${thresh}d</span>` : `<span style="font-size:11px;color:var(--txt3);font-family:var(--mono)">${d}d</span>`;
 }
 function allRecruiters(){ return [...new Set(SQUADS.flatMap(s=>[...s.owners,...s.recruiters]))]; }
-
-function getPoolCands(){ return cands.filter(c=>c.pid===currentPool&&canSeeCandidate(c)); }
+function getPoolCands(){ 
+  // ERROR CORREGIDO: Se usa == en lugar de === para que no importe si Sheets lo manda como texto o número
+  return cands.filter(c => c.pid == currentPool && canSeeCandidate(c)); 
+}
 
 function renderPoolView(){
-  const pool=pools.find(p=>p.id===currentPool); if(!pool) return;
+  const pool=pools.find(p => p.id == currentPool); if(!pool) return;
   document.getElementById('pool-title').textContent=pool.name;
   document.getElementById('pool-ptabs').innerHTML=pools.map(p=>`
-    <button class="ptab${p.id===currentPool?' active':''}" onclick="nav('pool',${p.id})">
+    <button class="ptab${p.id == currentPool ? ' active':''}" onclick="nav('pool',${p.id})">
       <span style="width:6px;height:6px;border-radius:50%;background:${p.color};display:inline-block;margin-right:4px;vertical-align:middle"></span>${p.name}
     </button>`).join('');
+  
   const cs=getPoolCands();
-  const active=cs.filter(c=>ACTIVE_S.has(c.est)).length, disc=cs.filter(c=>DISC_S.has(c.est)).length;
-  const aprov=cs.filter(c=>c.sit==='Aprobado').length, stale=cs.filter(c=>isStale(c)).length;
+  
+  // Se usa el nuevo isActiveInPipeline para contar solo a los realmente activos
+  const active=cs.filter(c=>isActiveInPipeline(c)).length;
+  const aprov=cs.filter(c=>c.sit==='Aprobado').length;
+  const stale=cs.filter(c=>isStale(c)).length;
+  
   document.getElementById('pool-mg').innerHTML=`
     <div class="mc"><div class="mcl">Total pool</div><div class="mcv mv-p">${cs.length}</div><div class="mcs">candidatos</div></div>
     <div class="mc"><div class="mcl">Aprobados</div><div class="mcv mv-g">${aprov}</div><div class="mcs">${cs.length?Math.round(aprov/cs.length*100):0}%</div></div>
-    <div class="mc"><div class="mcl">En pipeline</div><div class="mcv mv-a">${active}</div><div class="mcs">Ent.Inicial+</div></div>
+    <div class="mc"><div class="mcl">En pipeline</div><div class="mcv mv-a">${active}</div><div class="mcs">activos</div></div>
     <div class="mc"><div class="mcl" style="color:var(--amber)">Estancados</div><div class="mcv mv-r">${stale}</div><div class="mcs">sin actualizar</div></div>`;
   renderPool();
 }
@@ -490,10 +497,22 @@ function renderPool(){
   const q=(document.getElementById('ps-q')?.value||'').toLowerCase();
   const fs=document.getElementById('ps-sit')?.value||'';
   const fe=document.getElementById('ps-est')?.value||'';
+  
   let cs=getPoolCands().filter(c=>{
-    if(q&&!c.n.toLowerCase().includes(q)&&!c.stack.toLowerCase().includes(q)&&!(c.emp||'').toLowerCase().includes(q)) return false;
-    if(fs&&c.sit!==fs) return false; if(fe&&c.est!==fe) return false; return true;
+    // ERROR CORREGIDO: Evita que la tabla se rompa si un candidato no tiene empresa o stack anotado
+    const n = (c.n || '').toLowerCase();
+    const stack = (c.stack || '').toLowerCase();
+    const emp = (c.emp || '').toLowerCase();
+    
+    if(q && !n.includes(q) && !stack.includes(q) && !emp.includes(q)) return false;
+    
+    // ERROR CORREGIDO: Evita que los filtros se rompan si quedan en el estado por defecto "Situación"
+    if(fs && fs !== 'Situación' && c.sit !== fs) return false; 
+    if(fe && fe !== 'Estado' && c.est !== fe) return false; 
+    
+    return true;
   });
+  
   const tb=document.getElementById('pool-tb'); if(!tb) return;
   tb.innerHTML=cs.length?cs.map(c=>`
     <tr class="${isStale(c)?'stale':''}" onclick="openPanel(${c.id})">
@@ -507,6 +526,7 @@ function renderPool(){
       <td style="font-size:11px;color:var(--txt2)">${c.rec||'—'}</td>
       <td onclick="event.stopPropagation()"><button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver</button></td>
     </tr>`).join(''):`<tr><td colspan="9" class="nr">Sin candidatos.</td></tr>`;
+  
   document.getElementById('pool-ct').textContent=`${cs.length} de ${getPoolCands().length} candidatos`;
 }
 function resetPF(){ ['ps-q','ps-sit','ps-est'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';}); renderPool(); }
