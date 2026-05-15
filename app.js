@@ -2,10 +2,14 @@
 let SHEETS_URL = localStorage.getItem('st4_sheets_url') || '';
 let IS_OFFLINE = false;
 
+// LIMPIADOR AUTOMÁTICO: Quita el /u/1/ para que Google no bloquee la conexión
+function getSafeUrl(url) { return url ? url.replace(/\/macros\/u\/\d+\/s\//, '/macros/s/') : ''; }
+
 async function sheetsAPI(action, payload = null) {
   if (IS_OFFLINE) throw new Error('Modo offline');
   if (!SHEETS_URL) throw new Error('URL no configurada');
-  const url = new URL(SHEETS_URL);
+  const safeUrlStr = getSafeUrl(SHEETS_URL);
+  const url = new URL(safeUrlStr);
   url.searchParams.set('action', action);
   const opts = { method: 'GET' };
   if (payload) {
@@ -91,10 +95,11 @@ async function connectSheets() {
   const btn = document.querySelector('#setup .btn-p');
   btn.disabled = true; btn.textContent = 'Verificando...';
   try {
-    const resp = await fetch(`${url}?action=ping`);
+    const safeUrlStr = getSafeUrl(url);
+    const resp = await fetch(`${safeUrlStr}?action=ping`);
     const data = await resp.json();
     if (!data.ok) throw new Error('El script no responde correctamente');
-    SHEETS_URL = url; localStorage.setItem('st4_sheets_url', url); IS_OFFLINE = false;
+    SHEETS_URL = safeUrlStr; localStorage.setItem('st4_sheets_url', safeUrlStr); IS_OFFLINE = false;
     document.getElementById('setup').style.display = 'none';
     document.getElementById('login').style.display = 'flex';
     setSyncStatus('ok'); toast('Conectado', 'Google Sheets sincronizado', 'ok', '⬡');
@@ -151,7 +156,7 @@ function updateSheetsUrl() {
 
 // USERS & DATA STRUCTURE
 const USERS = [
-  {id:'JQ', name:'Jonathan Quiroz',    role:'supervisor', team:'A', color:'#7c6ef0', email:'jquiroz@buk.mx'},
+  {id:'JQ', name:'Jonathan Quiroz',    role:'owner', team:'A', color:'#7c6ef0', email:'jquiroz@buk.mx'},
   {id:'EF', name:'Eliana Franco',      role:'viewer',     team:'*', color:'#f0a940', email:'efranco@buk.co'},
   {id:'LR', name:'Laura Rodriguez',    role:'owner',      team:'C', color:'#2dd4a0', email:'larodriguez@buk.co'},
   {id:'CP', name:'Catalina Poblete',   role:'owner',      team:'B', color:'#a78bfa', email:'cpoblete@buk.cl'},
@@ -166,7 +171,7 @@ const USERS = [
 
 const SQUADS = [
   {id:'A', name:'Squad A', owners:['Jonathan Quiroz'],  recruiters:['Paula Mahecha'],    sourcers:['Catalina León','María José Menares']},
-  {id:'B', name:'Squad B', owners:['Catalina Poblete','Gaspar Jaramillo'], recruiters:['Gaspar Jaramillo'], sourcers:['Valentina Larenas']},
+  {id:'B', name:'Squad B', owners:['Catalina Poblete','Gaspar Jaramillo'], recruiters:['Catalina Poblete','Gaspar Jaramillo'], sourcers:['Valentina Larenas']},
   {id:'C', name:'Squad C', owners:['Laura Rodriguez'],  recruiters:['Joaquín Maragaño'], sourcers:['Matías Maldonado']},
 ];
 
@@ -502,21 +507,22 @@ function renderPool(){
 function resetPF(){ ['ps-q','ps-sit','ps-est'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';}); renderPool(); }
 
 function buildStageTabs(){
-  const stages=['Todas','Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
+  // Solo las etapas avanzadas para el menú del Pipeline
+  const stages=['Todas','Entrevista Inicial','Entrevista EM','Misión'];
   document.getElementById('pipe-stabs').innerHTML=stages.map(s=>`<button class="stab${pipeStageF===(s==='Todas'?'':s)?' active':''}" onclick="setPipeStage('${s==='Todas'?'':s}')">${s}</button>`).join('');
 }
 function setPipeStage(s){ pipeStageF=s; buildStageTabs(); renderPipeline(); }
 
 function getPipeCands(){
   const pf=parseInt(document.getElementById('pipe-pool-f')?.value)||0;
-  return cands.filter(c=>isActiveInPipeline(c)&&(!pf||c.pid===pf)&&(!pipeStageF||c.est===pipeStageF)&&canSeeCandidate(c));
+  // NUEVO: Filtro estricto SOLO para Entrevista Inicial, Entrevista EM y Misión
+  const validStages = ['Entrevista Inicial', 'Entrevista EM', 'Misión'];
+  return cands.filter(c=> validStages.includes(c.est) && (!pf||c.pid==pf) && (!pipeStageF||c.est===pipeStageF) && canSeeCandidate(c) && c.sit !== 'Rechazado' && !DISC_S.has(c.est));
 }
 
 function renderPipeline(){
   const cs=getPipeCands();
   const tb=document.getElementById('pipe-tb'); if(!tb) return;
-  
-  // Dibujar la tabla de candidatos
   tb.innerHTML=cs.length?cs.map(c=>`
     <tr class="${isStale(c)?'stale':''}" onclick="openPanel(${c.id})">
       <td><div class="tdn">${c.n}${isStale(c)?` <span style="color:var(--amber);font-size:10px">⚠</span>`:''}</div>${c.l?`<a class="tdl" href="${c.l}" target="_blank" onclick="event.stopPropagation()">↗</a>`:''}</td>
@@ -528,27 +534,26 @@ function renderPipeline(){
       <td style="font-size:11px;color:var(--txt2)">${c.sal||'—'}</td>
       <td style="font-size:11px;color:var(--txt2)">${c.rec||'—'}</td>
       <td onclick="event.stopPropagation()"><button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Editar</button></td>
-    </tr>`).join(''):`<tr><td colspan="9" class="nr">Sin candidatos en pipeline activo.</td></tr>`;
+    </tr>`).join(''):`<tr><td colspan="9" class="nr">Sin candidatos en entrevistas o misión.</td></tr>`;
   
-  const all=cands.filter(c=>isActiveInPipeline(c)&&canSeeCandidate(c));
+  // Métricas superiores (Solo cuenta las entrevistas y misión)
+  const validStages = ['Entrevista Inicial', 'Entrevista EM', 'Misión'];
+  const all=cands.filter(c=> validStages.includes(c.est) && canSeeCandidate(c) && c.sit !== 'Rechazado' && !DISC_S.has(c.est));
   const pmg = document.getElementById('pipe-mg');
-  
-  // Dibujar métricas superiores
-  if(pmg) {
+  if (pmg) {
     pmg.innerHTML=`
       <div class="mc"><div class="mcl">En pipeline</div><div class="mcv mv-p">${all.length}</div><div class="mcs">activos</div></div>
-      <div class="mc"><div class="mcl">Sourcing</div><div class="mcv mv-a">${all.filter(c=>c.est==='Contactado'||c.est==='Screening').length}</div><div class="mcs">Cont/Scr</div></div>
-      <div class="mc"><div class="mcl">Reclutamiento</div><div class="mcv" style="color:var(--pink)">${all.filter(c=>c.est==='Entrevista Inicial'||c.est==='Entrevista EM').length}</div><div class="mcs">Entrevistas</div></div>
-      <div class="mc"><div class="mcl">Misión</div><div class="mcv mv-g">${all.filter(c=>c.est==='Misión').length}</div><div class="mcs">Final</div></div>`;
+      <div class="mc"><div class="mcl">Ent. Inicial</div><div class="mcv mv-a">${all.filter(c=>c.est==='Entrevista Inicial').length}</div><div class="mcs">Primera etapa</div></div>
+      <div class="mc"><div class="mcl">Ent. EM</div><div class="mcv" style="color:var(--pink)">${all.filter(c=>c.est==='Entrevista EM').length}</div><div class="mcs">Líder técnico</div></div>
+      <div class="mc"><div class="mcl">Misión</div><div class="mcv mv-g">${all.filter(c=>c.est==='Misión').length}</div><div class="mcs">Fase final</div></div>`;
   }
   
-  // Dibujar embudo inferior (Protegido por si el HTML no tiene el elemento 'pipe-funnel')
-  const funnel = document.getElementById('pipe-funnel');
-  if(funnel) {
-    const sc=['Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
+  const pfunnel = document.getElementById('pipe-funnel');
+  if (pfunnel) {
+    const sc=['Entrevista Inicial','Entrevista EM','Misión'];
     const cnt=sc.map(s=>all.filter(c=>c.est===s).length), mx=Math.max(...cnt,1);
-    const cl=['#60a5fa','#f0a940','#a78bfa','#e06cc0','#2dd4a0'];
-    funnel.innerHTML=`<h3 style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">Embudo Total</h3>`+
+    const cl=['#a78bfa','#e06cc0','#2dd4a0'];
+    pfunnel.innerHTML=`<h3 style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">Embudo Activo</h3>`+
       sc.map((s,i)=>`<div class="br-row"><div class="br-label">${s}</div><div class="br-track"><div class="br-fill" style="width:${Math.max(cnt[i]/mx*100,3)}%;background:${cl[i]}22;color:${cl[i]}">${cnt[i]||''}</div></div><div style="font-size:10px;color:var(--txt3);width:18px">${cnt[i]}</div></div>`).join('');
   }
 }
@@ -1133,7 +1138,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('setup').style.display = 'none';
     document.getElementById('login').style.display = 'flex';
     buildLoginList();
-    fetch(`${SHEETS_URL}?action=ping`)
+    
+    const safeUrlStr = getSafeUrl(SHEETS_URL);
+    
+    fetch(`${safeUrlStr}?action=ping`)
       .then(r => r.json())
       .then(d => { if(d.ok) setSyncStatus('ok'); else setSyncStatus('error','⚠ Script no responde'); })
       .catch(() => setSyncStatus('error', '⚠ Sin conexión'));
