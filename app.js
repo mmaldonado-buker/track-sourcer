@@ -388,7 +388,7 @@ function buildSidebar(){
   
   const nbr=document.getElementById('nb-review');
   // ARREGLO: Solo cuenta los que están "Por revisar" y ESTRICTAMENTE en la etapa "Contactado"
-  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c) && c.sit==='Por revisar' && c.est==='Contactado').length;
+  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c) && (!c.sit||c.sit==='') && !DISC_S.has(c.est)).length;
   
   const nbpipe = document.getElementById('nb-pipe');
   if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)).length;
@@ -593,8 +593,8 @@ function renderKanban(){
 }
 
 function getReviewCands(){
-  // ARREGLO: Solo trae a la bandeja de revisión los recién creados ("Contactado") que falten por revisar.
-  return cands.filter(c => canSeeCandidate(c) && c.sit === 'Por revisar' && c.est === 'Contactado');
+  // Solo candidatos sin situación asignada (blanco) — pendientes que el recruiter decida
+  return cands.filter(c => canSeeCandidate(c) && (!c.sit || c.sit === '') && !DISC_S.has(c.est));
 }
 
 function renderReview(){
@@ -627,7 +627,8 @@ function renderReview(){
       <div class="rev-actions">
         <textarea class="rev-comment" id="rev-fb-${c.id}" placeholder="Comentario (opcional antes de decidir)...">${c.fb||''}</textarea>
         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar para contactar</button>
+          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar</button>
+          <button class="btn btn-sm" style="justify-content:center;border-color:var(--amber);color:var(--amber)" onclick="reviewAction(${c.id},'review')">⏸ Que el sourcer evalúe</button>
           <button class="btn btn-danger btn-sm" onclick="reviewAction(${c.id},'reject')">✕ Rechazar</button>
         </div>
       </div>
@@ -658,8 +659,9 @@ async function reviewAction(id, action){
   const fb = fbEl ? fbEl.value.trim() : c.fb||'';
   const changes = { fb };
 
-  if(action === 'approve') changes.sit = 'Aprobado';
-  else if(action === 'reject') changes.sit = 'Rechazado';
+  if(action === 'approve')      changes.sit = 'Aprobado';
+  else if(action === 'review')  changes.sit = 'Por revisar';
+  else if(action === 'reject')  changes.sit = 'Rechazado';
 
   Object.assign(c, changes);
   setSyncStatus('loading');
@@ -668,8 +670,8 @@ async function reviewAction(id, action){
     setSyncStatus('ok');
   } catch(err){ setSyncStatus('error','⚠ Guardado local'); }
 
-  const labels = {approve:'Aprobado ✓ — Sourcer puede contactar', reject:'Rechazado'};
-  const types  = {approve:'ok', reject:'err'};
+  const labels = {approve:'Aprobado ✓ — Sourcer puede avanzar', review:'Para revisar — el sourcer puede contactar y evaluar', reject:'Rechazado'};
+  const types  = {approve:'ok', review:'wrn', reject:'err'};
   toast(c.n, labels[action], types[action], action==='approve'?'⬆':'✕');
   buildSidebar();
   renderReview();
@@ -765,7 +767,7 @@ function recruiterForm(c){
   return `<div class="psec"><div class="pst">Revisión de candidato (Recruiter)</div><div class="uf">
     ${c.sit !== 'Rechazado' ? `
     <div style="font-size:11px;color:var(--txt3);padding:8px 10px;background:var(--bg3);border-radius:var(--r);margin-bottom:8px;border-left:2px solid var(--p)">
-      Aprueba o deja en revisión para que el sourcer pueda iniciar el screening. Si rechazas, el candidato queda archivado.
+      Aprueba si el perfil califica directo, o pídele al sourcer que lo evalúe contactándolo. Si rechazas, el candidato queda archivado.
     </div>` : `
     <div style="font-size:11px;color:var(--red);padding:8px 10px;background:rgba(224,92,92,.08);border-radius:var(--r);margin-bottom:8px;border-left:2px solid var(--red)">
       Candidato rechazado — no avanzará en el proceso.
@@ -779,16 +781,20 @@ function recruiterForm(c){
 }
 
 function sourcerForm(c,salOk){
-  const canAdvance = c.sit === 'Aprobado' || c.sit === 'Por revisar';
+  const isBlank    = !c.sit || c.sit === '';
   const isRejected = c.sit === 'Rechazado';
+  const canAdvance = c.sit === 'Aprobado' || c.sit === 'Por revisar';
   const stagesAllowed = canAdvance ? [...STAGES,'Descartado'] : [c.est];
   return `<div class="psec"><div class="pst">Actualizar (Sourcer)</div><div class="uf">
-    ${isRejected ? `
+    ${isBlank ? `
+    <div style="font-size:11px;color:var(--txt3);padding:9px 11px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2);margin-bottom:8px">
+      ⏳ Pendiente de revisión — el recruiter aún no ha dado el visto bueno.
+    </div>` : isRejected ? `
     <div style="font-size:11px;color:var(--red);padding:9px 11px;background:rgba(224,92,92,.08);border-radius:var(--r);border-left:2px solid var(--red);margin-bottom:8px">
       ✕ Candidato <strong>rechazado</strong> por el recruiter — no puede avanzar en el proceso.
     </div>` : c.sit === 'Por revisar' ? `
     <div style="font-size:11px;color:var(--amber);padding:9px 11px;background:rgba(240,169,64,.08);border-radius:var(--r);border-left:2px solid var(--amber);margin-bottom:8px">
-      ⏸ En revisión por el recruiter — ya puedes iniciar el screening mientras decide.
+      ⏸ <strong>Para revisar</strong> — el recruiter te da luz verde para contactar al candidato y evaluar si aplica al cargo.
     </div>` : c.sit === 'Aprobado' ? `
     <div style="font-size:11px;color:var(--green);padding:9px 11px;background:rgba(45,212,160,.08);border-radius:var(--r);border-left:2px solid var(--green);margin-bottom:8px">
       ✓ Candidato <strong>aprobado</strong> por el recruiter — puedes avanzar el proceso.
@@ -871,6 +877,10 @@ async function saveUpdate(id, role) {
     changes.sit = document.getElementById('u-sit').value;
     changes.fb  = document.getElementById('u-fb').value;
   } else if(role==='sourcer'){
+    if(isBlank || (!c.sit || c.sit === '')){
+      toast('Pendiente de revisión','El recruiter aún no ha dado el visto bueno','wrn','⏳');
+      return;
+    }
     if(c.sit === 'Rechazado'){
       toast('Sin permisos','El recruiter rechazó este candidato — no puede avanzar','err','✕');
       return;
@@ -965,7 +975,7 @@ async function saveCand(){
     pid, n, l:document.getElementById('f-l').value.trim(),
     s:document.getElementById('f-se').value, stack:st,
     emp:document.getElementById('f-em').value.trim(),
-    sit:'Por revisar', est:'Contactado', mo:'',
+    sit:'', est:'Contactado', mo:'',
     src:document.getElementById('f-so').value.trim()||CU.name,
     rec:document.getElementById('f-rc').value, fb:'',
     eq:document.getElementById('f-eq').value.trim(), sal:'', dt:today,
@@ -1142,7 +1152,7 @@ function getTodayCands(){
   const result = [];
   // Pendientes de revisión (recruiter/owner)
   if(HAT==='recruiter'||HAT==='owner'||HAT==='supervisor'){
-    all.filter(c=>c.sit==='Por revisar'&&c.est==='Contactado').forEach(c=>result.push({c,reason:'Pendiente de revisión'}));
+    all.filter(c=>(!c.sit||c.sit==='')&&!DISC_S.has(c.est)).forEach(c=>result.push({c,reason:'Pendiente de revisión'}));
   }
   // Estancados propios
   all.filter(c=>isStale(c)).forEach(c=>{
