@@ -1155,6 +1155,13 @@ function getTodayCands(){
   return result;
 }
 
+let todayFilter = '';
+
+function setTodayFilter(key){
+  todayFilter = todayFilter === key ? '' : key;
+  renderToday();
+}
+
 function renderToday(){
   const tb = document.getElementById('today-body'); if(!tb) return;
   document.getElementById('today-title').textContent = `Mi día — ${CU.name.split(' ')[0]}`;
@@ -1171,20 +1178,32 @@ function renderToday(){
     return;
   }
 
-  // Agrupar por motivo
   const groups = {};
   items.forEach(({c,reason})=>{ const key=reason.split('—')[0].trim(); if(!groups[key])groups[key]=[]; groups[key].push({c,reason}); });
 
-  const icons = {'Pendiente de revisión':'⏳','Estancado':'⚠','Sin feedback registrado':'💬'};
+  const icons  = {'Pendiente de revisión':'⏳','Estancado':'⚠','Sin feedback registrado':'💬'};
   const colors = {'Pendiente de revisión':'var(--p2)','Estancado':'var(--amber)','Sin feedback registrado':'var(--txt2)'};
 
+  // Tarjetas de categoría clickeables en el resumen
+  const filterTabs = Object.entries(groups).map(([key, list])=>`
+    <div class="mc" onclick="setTodayFilter('${key}')" style="cursor:pointer;border:1px solid ${todayFilter===key?(colors[key]||'var(--border2)'):'var(--border)'};transition:border-color .15s;${todayFilter===key?'background:var(--bg3)':''}">
+      <div class="mcl" style="color:${colors[key]||'var(--txt3)'}">${icons[key]||'•'} ${key}</div>
+      <div class="mcv" style="color:${colors[key]||'var(--txt)'}">${list.length}</div>
+      <div class="mcs">${todayFilter===key?'clic para ver todo':'clic para filtrar'}</div>
+    </div>`).join('');
+
+  // Filtrar grupos según selección
+  const visibleGroups = todayFilter
+    ? Object.entries(groups).filter(([key])=>key===todayFilter)
+    : Object.entries(groups);
+
   tb.innerHTML = `
-    <div class="mg" style="margin-bottom:16px">
-      <div class="mc"><div class="mcl">Pendientes hoy</div><div class="mcv mv-a">${items.length}</div><div class="mcs">acciones</div></div>
-      <div class="mc"><div class="mcl">Para revisar</div><div class="mcv mv-p">${items.filter(x=>x.reason==='Pendiente de revisión').length}</div><div class="mcs">candidatos</div></div>
-      <div class="mc"><div class="mcl">Estancados</div><div class="mcv mv-r">${items.filter(x=>x.reason.startsWith('Estancado')).length}</div><div class="mcs">sin mover</div></div>
-    </div>
-    ${Object.entries(groups).map(([key, list])=>`
+    <div class="mg" style="margin-bottom:16px">${filterTabs}</div>
+    ${todayFilter?`<div style="font-size:11px;color:var(--txt3);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+      Mostrando solo: <span style="color:${colors[todayFilter]||'var(--txt)'};font-weight:600">${icons[todayFilter]||''} ${todayFilter}</span>
+      <button class="btn btn-sm btn-ghost" style="padding:2px 8px" onclick="setTodayFilter('')">✕ Ver todo</button>
+    </div>`:''}
+    ${visibleGroups.map(([key, list])=>`
     <div class="rev-section" style="margin-bottom:20px">
       <div class="rev-sec-title" style="color:${colors[key]||'var(--txt3)'}">
         ${icons[key]||'•'} ${key} <span class="nb">${list.length}</span>
