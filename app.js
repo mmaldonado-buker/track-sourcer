@@ -115,9 +115,18 @@ async function syncNow() {
   setSyncStatus('loading');
   try {
     const [cResp, pResp] = await Promise.all([sheetsAPI('getCandidates'), sheetsAPI('getPools')]);
-    cands = cResp.candidates || []; pools = pResp.pools || [];
+    cands = cResp.candidates || []; 
+    
+    // Forzar el uso de los nombres de pools correctos si el backend devuelve los viejos o está vacío
+    let fetchedPools = pResp.pools || [];
+    if (fetchedPools.length === 0 || fetchedPools.some(p => p.name === 'Software Engineers' || p.name === 'Tribu Plataforma')) {
+        fetchedPools = JSON.parse(JSON.stringify(DEFAULT_POOLS));
+    }
+    pools = fetchedPools;
+    
     localStorage.setItem('st4_cands', JSON.stringify(cands));
     localStorage.setItem('st4_pools', JSON.stringify(pools));
+    
     setSyncStatus('ok'); buildSidebar();
     const views = ['pool','pipeline','kanban','analytics','review'];
     views.forEach(v => {
@@ -163,11 +172,14 @@ const SQUADS = [
   {id:'B', name:'Squad B', owners:['Catalina Poblete'], recruiters:['Gaspar Jaramillo'], sourcers:['Valentina Larenas']},
   {id:'C', name:'Squad C', owners:['Laura Rodriguez'],  recruiters:['Joaquín Maragaño'], sourcers:['Matías Maldonado']},
 ];
+
+// AQUÍ ESTÁ EL CAMBIO CLAVE: Los nombres oficiales del Sheet
 const DEFAULT_POOLS = [
-  {id:1, name:'Software Engineers',    desc:'Pool general de ingenieros de software', color:'#5b9cf0'},
-  {id:2, name:'Tribu Plataforma',      desc:'DevOps, DevSecOps, DevEx y afines',      color:'#7c6ef0'},
-  {id:3, name:'Engineering Managers',  desc:'Engineering Managers por célula',        color:'#e06cc0'},
+  {id:1, name:'Devs', desc:'Pool general de ingenieros de software', color:'#5b9cf0'},
+  {id:2, name:'PLTF', desc:'DevOps, DevSecOps, DevEx y afines',      color:'#7c6ef0'},
+  {id:3, name:'EM',   desc:'Engineering Managers por célula',        color:'#e06cc0'},
 ];
+
 const DEFAULT_THRESHOLDS = { 'Contactado':7, 'Screening':7, 'Entrevista Inicial':10, 'Entrevista EM':10, 'Misión':14 };
 const STAGES   = ['Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
 const ACTIVE_S = new Set(['Entrevista Inicial','Entrevista EM','Misión']);
@@ -197,10 +209,18 @@ function loadLocalConfig() {
   thresholds = st ? JSON.parse(st) : {...DEFAULT_THRESHOLDS};
   USERS.forEach(u => { emailMap[u.name] = u.email; });
   API_KEY = localStorage.getItem('st4_key') || '';
-  const sp = localStorage.getItem('st4_pools');
+  
   const sc = localStorage.getItem('st4_cands');
-  pools = sp ? JSON.parse(sp) : JSON.parse(JSON.stringify(DEFAULT_POOLS));
   cands = sc ? JSON.parse(sc) : JSON.parse(JSON.stringify(SEED));
+  
+  // ¡TRUCO!: Limpiador de Caché. Si el navegador guardó los nombres viejos, los borramos.
+  let sp = localStorage.getItem('st4_pools');
+  if (sp && (sp.includes('Software Engineers') || sp.includes('Tribu Plataforma'))) {
+      sp = null;
+      localStorage.removeItem('st4_pools');
+  }
+  
+  pools = sp ? JSON.parse(sp) : JSON.parse(JSON.stringify(DEFAULT_POOLS));
 }
 function saveLocal() { localStorage.setItem('st4_thresh', JSON.stringify(thresholds)); }
 
@@ -340,7 +360,6 @@ function canSeeCandidate(c) {
 function isMyTeamCandidate(c) {
   const sq = SQUADS.find(s => s.id === CU.team);
   if (!sq) return false;
-  // Un owner ve a los candidatos hunteados por sus sourcers o asignados a sus recruiters
   const m = [...sq.owners, ...sq.recruiters, ...sq.sourcers];
   return m.includes(c.src) || m.includes(c.rec);
 }
@@ -611,7 +630,7 @@ function ownerForm(c,salOk,disc){
   return `<div class="psec"><div class="pst">Actualizar (Owner/Supervisor)</div><div class="uf">
     
     <label style="color:var(--p2); font-weight:600;">Pool / Categoría del Candidato</label>
-    <select id="u-pid" style="margin-bottom:12px; border-color:var(--pborder);">${poolOptions}</select>
+    <select id="u-po" style="margin-bottom:12px; border-color:var(--pborder);">${poolOptions}</select>
 
     <label>Estado pipeline</label>
     <select id="u-est">${[...STAGES,'Descartado','No interesado'].map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}</select>
@@ -806,10 +825,10 @@ async function saveUpdate(id, role) {
       changes.dates = newDates;
     }
     
-    // Capturar el cambio de pool (PID) desde el selector
-    const newPid = document.getElementById('u-pid');
-    if(newPid && parseInt(newPid.value) !== c.pid) {
-       changes.pid = parseInt(newPid.value);
+    // Capturar el cambio de pool (PID) desde el selector de Owner
+    const po = document.getElementById('u-po');
+    if(po && parseInt(po.value) !== c.pid) {
+       changes.pid = parseInt(po.value);
     }
 
     changes.sit = document.getElementById('u-sit')?.value || c.sit;
@@ -864,7 +883,7 @@ function openAddCand(){
   document.getElementById('f-po').innerHTML=pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   document.getElementById('f-so').value=CU.name;
   
-  // Limpiar campos de texto, ya no buscamos f-cv ni cv-status
+  // Limpiar campos
   ['f-n','f-l','f-st','f-em','f-eq'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('f-se').value='';
   
@@ -1022,7 +1041,6 @@ function getReviewCands(){
 function renderReview(){
   const pending  = getReviewCands().filter(c => c.sit === 'Por revisar');
   const approved = getReviewCands().filter(c => c.sit === 'Aprobado');
-  // Note: Rechazado is already excluded by getReviewCands()
   const rb = document.getElementById('review-body'); if(!rb) return;
 
   const mkCard = (c, showActions) => {
@@ -1087,12 +1105,9 @@ async function reviewAction(id, action){
   const today = new Date().toISOString().slice(0,10);
 
   if(action === 'approve'){
-    // Recruiter aprueba: queda en su estado actual (Contactado/Screening),
-    // sitación pasa a Aprobado → el sourcer puede ahora avanzar el proceso
     changes.sit = 'Aprobado';
   } else if(action === 'reject'){
     changes.sit = 'Rechazado';
-    // Rechazado no avanza en pipeline — solo cambia la situación
   } else {
     changes.sit = 'Por revisar';
   }
