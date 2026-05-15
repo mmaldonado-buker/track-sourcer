@@ -116,18 +116,14 @@ async function syncNow() {
   try {
     const [cResp, pResp] = await Promise.all([sheetsAPI('getCandidates'), sheetsAPI('getPools')]);
     cands = cResp.candidates || []; 
-    
-    // Forzar el uso de los nombres de pools correctos si el backend devuelve los viejos
     let fetchedPools = pResp.pools || [];
     if (fetchedPools.length === 0 || fetchedPools.some(p => p.name === 'Software Engineers' || p.name === 'Tribu Plataforma')) {
         fetchedPools = JSON.parse(JSON.stringify(DEFAULT_POOLS));
     }
     pools = fetchedPools;
-    
     localStorage.setItem('st4_cands', JSON.stringify(cands));
     localStorage.setItem('st4_pools', JSON.stringify(pools));
     setSyncStatus('ok'); buildSidebar();
-    
     const views = ['pool','pipeline','kanban','analytics','review'];
     views.forEach(v => {
       const el = document.getElementById('v-' + v);
@@ -174,6 +170,12 @@ const SQUADS = [
   {id:'C', name:'Squad C', owners:['Laura Rodriguez'],  recruiters:['Joaquín Maragaño'], sourcers:['Matías Maldonado']},
 ];
 
+const DEFAULT_POOLS = [
+  {id:1, name:'Devs', desc:'Pool general de ingenieros de software', color:'#5b9cf0'},
+  {id:2, name:'PLTF', desc:'DevOps, DevSecOps, DevEx y afines',      color:'#7c6ef0'},
+  {id:3, name:'EM',   desc:'Engineering Managers por célula',        color:'#e06cc0'},
+];
+
 const DEFAULT_THRESHOLDS = { 'Contactado':7, 'Screening':7, 'Entrevista Inicial':10, 'Entrevista EM':10, 'Misión':14 };
 const STAGES   = ['Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
 const DISC_S   = new Set(['Descartado','No interesado']);
@@ -183,11 +185,8 @@ const SCREEN_S = new Set(['Screening','Entrevista Inicial','Entrevista EM','Misi
 function isActiveInPipeline(c) {
   if (DISC_S.has(c.est)) return false; 
   if (c.sit === 'Rechazado') return false; 
-  
   if (['Entrevista Inicial','Entrevista EM','Misión'].includes(c.est)) return true;
-  
   if (c.sit === 'Aprobado') return true;
-  
   return false;
 }
 
@@ -199,34 +198,27 @@ const SEED = [
   {id:3,pid:1,n:'Daniel Amaya',     l:'https://linkedin.com/in/amayabdaniel',       s:'L3',stack:'RoR, TS',     emp:'Furnished Finder',sit:'Aprobado',  est:'Contactado',        mo:'',src:'Catalina León',    rec:'Gaspar Jaramillo',fb:'Me gustó mucho, hagamos outreach',          eq:'Backend',    sal:'',       dates:{Contactado:daysAgo(3)},dt:daysAgo(3)},
 ];
 
-// STATE
 let CU = null, HAT = '', API_KEY = '';
 let pools = [], cands = [];
 let currentPool = null, pipeStageF = '';
 let thresholds = {}, emailMap = {};
 let selUserId = null;
 
-// STORAGE
 function loadLocalConfig() {
   const st = localStorage.getItem('st4_thresh');
   thresholds = st ? JSON.parse(st) : {...DEFAULT_THRESHOLDS};
   USERS.forEach(u => { emailMap[u.name] = u.email; });
   API_KEY = localStorage.getItem('st4_key') || '';
-  
-  // Limpiador de Caché de Pools
   let sp = localStorage.getItem('st4_pools');
   if (sp && (sp.includes('Software Engineers') || sp.includes('Tribu Plataforma'))) {
-      sp = null;
-      localStorage.removeItem('st4_pools');
+      sp = null; localStorage.removeItem('st4_pools');
   }
   pools = sp ? JSON.parse(sp) : JSON.parse(JSON.stringify(DEFAULT_POOLS));
-  
   const sc = localStorage.getItem('st4_cands');
   cands = sc ? JSON.parse(sc) : JSON.parse(JSON.stringify(SEED));
 }
 function saveLocal() { localStorage.setItem('st4_thresh', JSON.stringify(thresholds)); }
 
-// HELPERS
 function daysSince(dateStr){ if(!dateStr) return null; return Math.floor((new Date()-new Date(dateStr))/(86400000)); }
 function daysInStage(c){ return daysSince(c.dates?.[c.est]); }
 function isStale(c){ if(DISC_S.has(c.est)) return false; const d=daysInStage(c); return d!==null && d>=(thresholds[c.est]||10); }
@@ -260,7 +252,7 @@ function buildStaleEmail(c){
   const involvedNames=[...new Set([c.src,c.rec,getOwnerForTeam(c)])].filter(Boolean);
   const toEmails=involvedNames.map(n=>emailMap[n]||n).join(', ');
   const subject=`[SourcerTrack] ⚠ Candidato estancado: ${c.n} (${days} días en ${c.est})`;
-  const body=`Hola equipo,\n\nEste es un recordatorio automático de SourcerTrack.\n\nEl candidato ${c.n} lleva ${days} días en la etapa "${c.est}", superando el umbral de ${thresh} días.\n\nDetalles:\n• Pool: ${pname(c.pid)}\n• Etapa actual: ${c.est}\n• Equipo sugerido: ${c.eq||'—'}\n• Sourcer: ${c.src||'—'}\n• Recruiter: ${c.rec||'—'}\n• Rango salarial: ${c.sal||'No registrado'}\n\nPor favor actualiza el estado en SourcerTrack.\nID: #ST-${String(c.id).padStart(4,'0')}\n\nSourcerTrack v4.1`;
+  const body=`Hola equipo,\n\nEste es un recordatorio automático.\nEl candidato ${c.n} lleva ${days} días en "${c.est}".\n\nDetalles:\n• Pool: ${pname(c.pid)}\n• Etapa actual: ${c.est}\n• Equipo sugerido: ${c.eq||'—'}\n• Sourcer: ${c.src||'—'}\n• Recruiter: ${c.rec||'—'}\n• Rango salarial: ${c.sal||'No registrado'}\n\nPor favor actualiza el estado. ID: #ST-${String(c.id).padStart(4,'0')}`;
   return {to:toEmails,subject,body,involvedNames};
 }
 function getOwnerForTeam(c){ const sq=SQUADS.find(s=>s.sourcers.includes(c.src)||s.recruiters.includes(c.rec)); return sq?.owners?.[0]||''; }
@@ -282,7 +274,6 @@ function copyEmail(){
   navigator.clipboard.writeText(text).then(()=>{ document.getElementById('copy-done').style.display='inline'; toast('Email copiado','Abre Gmail y pega el contenido','ok','📋'); });
 }
 
-// LOGIN DIRECTO AUTOMÁTICO
 function buildLoginList() {
   const roleLabel={supervisor:'Supervisor',viewer:'Tech Lead (Solo Lectura)',owner:'Owner',recruiter:'Recruiter',sourcer:'Sourcer'};
   const roleOrder=['supervisor','viewer','owner','recruiter','sourcer'];
@@ -303,44 +294,16 @@ async function directLogin(id){
   if(!IS_OFFLINE) setTimeout(()=>syncNow(), 300);
 }
 
-function buildSidebar(){
-  const poolsEl=document.getElementById('sb-pools');
-  if(!canSeePools()){ document.getElementById('sb-pool-sec').style.display='none'; }
-  else {
-    document.getElementById('sb-pool-sec').style.display='';
-    poolsEl.innerHTML=pools.map(p=>`
-      <button class="ni ni-pool-${p.id}" onclick="nav('pool',${p.id})">
-        <span class="dot" style="background:${p.color}"></span>
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.name}</span>
-        <span class="nb live">${cands.filter(c=>c.pid===p.id&&canSeeCandidate(c)).length}</span>
-      </button>`).join('');
-  }
-  document.querySelectorAll('#btn-add-cand,#btn-add-pipe').forEach(b=>b.style.display=canAddCandidates()?'':'none');
-  const ppf=document.getElementById('pipe-pool-f');
-  if(ppf) ppf.innerHTML='<option value="">Todos los pools</option>'+pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
-  updateStaleSidebar();
-  
-  // NUEVO: Ocultar botón de Revisión a los Sourcers
-  const btnReview = document.getElementById('ni-review');
-  if (btnReview) {
-      btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
-  }
-  
-  // NUEVO: El globo rojo ahora solo cuenta los que están "Por revisar"
-  const nbr=document.getElementById('nb-review');
-  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c)&&c.sit==='Por revisar').length;
-  
-  const nbpipe = document.getElementById('nb-pipe');
-  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&ACTIVE_S.has(c.est)).length;
+function init(){
+  buildSidebar(); updateFooter(); checkStaleNow();
+  if(HAT==='recruiter' || HAT==='owner') nav('review');
+  else { currentPool=pools[0]?.id||1; nav('pool'); }
+  toast('Bienvenid@',CU.name,CU.role==='viewer'?'inf':'ok','⬡');
 }
 
-// ==========================================
-// SISTEMA ESTRICTO DE ROLES Y VISIBILIDAD
-// ==========================================
 function canSeeCandidate(c) {
   if (!CU) return false;
   const role = (HAT || '').toLowerCase();
-  
   if (role === 'supervisor' || role === 'viewer') return true; 
   if (role === 'owner') return isMyTeamCandidate(c); 
   if (role === 'sourcer') return c.src && c.src.toLowerCase().includes(CU.name.toLowerCase());
@@ -364,12 +327,7 @@ function canEdit(c) {
   return false; 
 }
 
-function canEditFull(c) {
-  if (HAT === 'viewer') return false;
-  if (HAT === 'owner' || HAT === 'supervisor') return true;
-  return false;
-}
-
+function canEditFull(c) { return (HAT === 'owner' || HAT === 'supervisor'); }
 function canSeePools() { return true; }
 function canAddCandidates() { return HAT !== 'viewer'; }
 
@@ -382,7 +340,7 @@ function buildSidebar(){
       <button class="ni ni-pool-${p.id}" onclick="nav('pool',${p.id})">
         <span class="dot" style="background:${p.color}"></span>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.name}</span>
-        <span class="nb live">${cands.filter(c=>c.pid===p.id&&canSeeCandidate(c)).length}</span>
+        <span class="nb live">${cands.filter(c=> Number(c.pid) == Number(p.id) && canSeeCandidate(c)).length}</span>
       </button>`).join('');
   }
   document.querySelectorAll('#btn-add-cand,#btn-add-pipe').forEach(b=>b.style.display=canAddCandidates()?'':'none');
@@ -391,9 +349,7 @@ function buildSidebar(){
   updateStaleSidebar();
   
   const btnReview = document.getElementById('ni-review');
-  if (btnReview) {
-      btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
-  }
+  if (btnReview) btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
   
   const nbr=document.getElementById('nb-review');
   if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c)&&c.sit==='Por revisar').length;
@@ -405,6 +361,7 @@ function buildSidebar(){
 function updateFooter(){
   const roleLabel={owner:'Owner',recruiter:'Recruiter',sourcer:'Sourcer',supervisor:'Supervisor',viewer:'Tech Lead'};
   const ava=document.getElementById('sb-ava');
+  if(!ava) return;
   ava.style.background=CU.color+'22'; ava.style.color=CU.color;
   ava.textContent=CU.name.split(' ').map(w=>w[0]).join('').slice(0,2);
   document.getElementById('sb-uname').textContent=CU.name;
@@ -451,8 +408,8 @@ function nav(view, poolId){
 function sitB(s){ const m={Aprobado:'ba',Rechazado:'br','Por revisar':'bpr'}; return `<span class="badge ${m[s]||''}">${s||'—'}</span>`; }
 function estB(e){ const m={Contactado:'bco',Screening:'bsc','Entrevista Inicial':'bei','Entrevista EM':'bem',Misión:'bmi',Descartado:'bde','No interesado':'bde'}; return `<span class="badge ${m[e]||''}">${e||'—'}</span>`; }
 function chips(s){ if(!s) return '—'; return s.split(',').map(x=>`<span class="chip">${x.trim()}</span>`).join(''); }
-function pname(id){ return pools.find(p=>p.id===id)?.name||'—'; }
-function pcolor(id){ return pools.find(p=>p.id===id)?.color||'var(--txt3)'; }
+function pname(id){ return pools.find(p=>p.id==id)?.name||'—'; }
+function pcolor(id){ return pools.find(p=>p.id==id)?.color||'var(--txt3)'; }
 function pSteps(c){
   const idx=STAGES.indexOf(c.est), disc=DISC_S.has(c.est);
   const short={Contactado:'Cont',Screening:'Screen','Entrevista Inicial':'Ent.I','Entrevista EM':'Ent.EM',Misión:'Misión'};
@@ -465,8 +422,8 @@ function staleDaysCell(c){
   return d>=thresh ? `<span class="stale-tag"> ${d}d · >${thresh}d</span>` : `<span style="font-size:11px;color:var(--txt3);font-family:var(--mono)">${d}d</span>`;
 }
 function allRecruiters(){ return [...new Set(SQUADS.flatMap(s=>[...s.owners,...s.recruiters]))]; }
+
 function getPoolCands(){ 
-  // ERROR CORREGIDO: Se usa == en lugar de === para que no importe si Sheets lo manda como texto o número
   return cands.filter(c => c.pid == currentPool && canSeeCandidate(c)); 
 }
 
@@ -474,16 +431,13 @@ function renderPoolView(){
   const pool=pools.find(p => p.id == currentPool); if(!pool) return;
   document.getElementById('pool-title').textContent=pool.name;
   document.getElementById('pool-ptabs').innerHTML=pools.map(p=>`
-    <button class="ptab${p.id == currentPool ? ' active':''}" onclick="nav('pool',${p.id})">
+    <button class="ptab${p.id == currentPool?' active':''}" onclick="nav('pool',${p.id})">
       <span style="width:6px;height:6px;border-radius:50%;background:${p.color};display:inline-block;margin-right:4px;vertical-align:middle"></span>${p.name}
     </button>`).join('');
   
   const cs=getPoolCands();
-  
-  // Se usa el nuevo isActiveInPipeline para contar solo a los realmente activos
-  const active=cs.filter(c=>isActiveInPipeline(c)).length;
-  const aprov=cs.filter(c=>c.sit==='Aprobado').length;
-  const stale=cs.filter(c=>isStale(c)).length;
+  const active=cs.filter(c=>isActiveInPipeline(c)).length, disc=cs.filter(c=>DISC_S.has(c.est)).length;
+  const aprov=cs.filter(c=>c.sit==='Aprobado').length, stale=cs.filter(c=>isStale(c)).length;
   
   document.getElementById('pool-mg').innerHTML=`
     <div class="mc"><div class="mcl">Total pool</div><div class="mcv mv-p">${cs.length}</div><div class="mcs">candidatos</div></div>
@@ -499,17 +453,12 @@ function renderPool(){
   const fe=document.getElementById('ps-est')?.value||'';
   
   let cs=getPoolCands().filter(c=>{
-    // ERROR CORREGIDO: Evita que la tabla se rompa si un candidato no tiene empresa o stack anotado
     const n = (c.n || '').toLowerCase();
     const stack = (c.stack || '').toLowerCase();
     const emp = (c.emp || '').toLowerCase();
-    
     if(q && !n.includes(q) && !stack.includes(q) && !emp.includes(q)) return false;
-    
-    // ERROR CORREGIDO: Evita que los filtros se rompan si quedan en el estado por defecto "Situación"
     if(fs && fs !== 'Situación' && c.sit !== fs) return false; 
     if(fe && fe !== 'Estado' && c.est !== fe) return false; 
-    
     return true;
   });
   
@@ -526,20 +475,21 @@ function renderPool(){
       <td style="font-size:11px;color:var(--txt2)">${c.rec||'—'}</td>
       <td onclick="event.stopPropagation()"><button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver</button></td>
     </tr>`).join(''):`<tr><td colspan="9" class="nr">Sin candidatos.</td></tr>`;
-  
   document.getElementById('pool-ct').textContent=`${cs.length} de ${getPoolCands().length} candidatos`;
 }
 function resetPF(){ ['ps-q','ps-sit','ps-est'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';}); renderPool(); }
 
 function buildStageTabs(){
-  const stages=['Todas','Entrevista Inicial','Entrevista EM','Misión'];
+  const stages=['Todas','Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
   document.getElementById('pipe-stabs').innerHTML=stages.map(s=>`<button class="stab${pipeStageF===(s==='Todas'?'':s)?' active':''}" onclick="setPipeStage('${s==='Todas'?'':s}')">${s}</button>`).join('');
 }
 function setPipeStage(s){ pipeStageF=s; buildStageTabs(); renderPipeline(); }
+
 function getPipeCands(){
   const pf=parseInt(document.getElementById('pipe-pool-f')?.value)||0;
-  return cands.filter(c=>ACTIVE_S.has(c.est)&&(!pf||c.pid===pf)&&(!pipeStageF||c.est===pipeStageF)&&canSeeCandidate(c));
+  return cands.filter(c=>isActiveInPipeline(c)&&(!pf||c.pid===pf)&&(!pipeStageF||c.est===pipeStageF)&&canSeeCandidate(c));
 }
+
 function renderPipeline(){
   const cs=getPipeCands();
   const tb=document.getElementById('pipe-tb'); if(!tb) return;
@@ -585,6 +535,80 @@ function renderKanban(){
         </div>`).join(''):`<div class="ke">Vacío</div>`}
       </div></div>`;
   }).join('');
+}
+
+function getReviewCands(){
+  return cands.filter(c => canSeeCandidate(c) && c.sit === 'Por revisar');
+}
+
+function renderReview(){
+  const pending = getReviewCands();
+  const rb = document.getElementById('review-body'); if(!rb) return;
+
+  const mkCard = (c) => {
+    const staleWarn = isStale(c) ? `<span style="color:var(--amber);font-size:10px"> ⚠${daysInStage(c)}d</span>` : '';
+    return `<div class="rev-card" id="rcard-${c.id}">
+      <div class="rev-card-top">
+        <div style="flex:1;min-width:0">
+          <div class="rev-name">${c.n}${staleWarn}</div>
+          <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
+          ${c.fb ? `<div class="rev-fb">"${c.fb}"</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+          ${estB(c.est)}
+          <button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver detalle</button>
+        </div>
+      </div>
+      ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px;margin-bottom:8px;display:inline-flex">↗ LinkedIn</a>` : ''}
+      <div class="rev-actions">
+        <textarea class="rev-comment" id="rev-fb-${c.id}" placeholder="Comentario (opcional antes de decidir)...">${c.fb||''}</textarea>
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar para contactar</button>
+          <button class="btn btn-danger btn-sm" onclick="reviewAction(${c.id},'reject')">✕ Rechazar</button>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  rb.innerHTML = `
+    <div class="mg" style="margin-bottom:16px">
+      <div class="mc"><div class="mcl">Para revisar</div><div class="mcv mv-a">${pending.length}</div><div class="mcs">pendientes</div></div>
+      <div class="mc"><div class="mcl">Rechazados</div><div class="mcv mv-r">${cands.filter(c=>canSeeCandidate(c)&&c.sit==='Rechazado').length}</div><div class="mcs">histórico</div></div>
+    </div>
+    ${pending.length ? `
+    <div class="rev-section">
+      <div class="rev-sec-title">⏳ Pendientes de revisión <span class="nb">${pending.length}</span></div>
+      <div class="rev-list">${pending.map(c=>mkCard(c)).join('')}</div>
+    </div>` : `
+    <div style="text-align:center;padding:40px 20px;color:var(--txt3)">
+      <div style="font-size:28px;margin-bottom:8px">✓</div>
+      <div style="font-size:13px">Sin candidatos pendientes de revisión</div>
+      <div style="font-size:11px;margin-top:4px">Los sourcers agregarán nuevos candidatos aquí</div>
+    </div>`}
+  `;
+}
+
+async function reviewAction(id, action){
+  const c = cands.find(x=>x.id===id); if(!c) return;
+  const fbEl = document.getElementById(`rev-fb-${id}`);
+  const fb = fbEl ? fbEl.value.trim() : c.fb||'';
+  const changes = { fb };
+
+  if(action === 'approve') changes.sit = 'Aprobado';
+  else if(action === 'reject') changes.sit = 'Rechazado';
+
+  Object.assign(c, changes);
+  setSyncStatus('loading');
+  try {
+    await apiCall('updateCandidate', {id, changes, changedBy: CU.name});
+    setSyncStatus('ok');
+  } catch(err){ setSyncStatus('error','⚠ Guardado local'); }
+
+  const labels = {approve:'Aprobado ✓ — Sourcer puede contactar', reject:'Rechazado'};
+  const types  = {approve:'ok', reject:'err'};
+  toast(c.n, labels[action], types[action], action==='approve'?'⬆':'✕');
+  buildSidebar();
+  renderReview();
 }
 
 function openPanel(id){
@@ -634,7 +658,7 @@ function openPanel(id){
 function closePanel(){ document.getElementById('panel').classList.remove('open'); }
 
 function ownerForm(c,salOk,disc){
-  const poolOptions = pools.map(p => `<option value="${p.id}" ${p.id === c.pid ? 'selected' : ''}>${p.name}</option>`).join('');
+  const poolOptions = pools.map(p => `<option value="${p.id}" ${p.id == c.pid ? 'selected' : ''}>${p.name}</option>`).join('');
   return `<div class="psec"><div class="pst">Actualizar (Owner/Supervisor)</div><div class="uf">
     <label style="color:var(--p2); font-weight:600;">Pool / Categoría del Candidato</label>
     <select id="u-po" style="margin-bottom:12px; border-color:var(--pborder); background:var(--bg3);">${poolOptions}</select>
@@ -721,7 +745,6 @@ function sourcerForm(c,salOk){
   </div></div>`;
 }
 
-// Clasificar motivos de descarte basados en el feedback escrito
 async function autoCategorizarDescarte(idx) {
   const feedback = document.getElementById('u-fb').value;
   const statusDiv = document.getElementById('ai-motivo-status');
@@ -771,7 +794,6 @@ async function autoCategorizarDescarte(idx) {
     }
 
   } catch (err) {
-    console.error(err);
     statusDiv.innerHTML = '<span style="color:var(--red)">⚠ Error al conectar con IA.</span>';
   }
 }
@@ -800,7 +822,6 @@ async function saveUpdate(id, role) {
     changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
     const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
   } else {
-    // ROL OWNER / SUPERVISOR
     const newEst = document.getElementById('u-est')?.value;
     if(newEst) {
       changes.est = newEst;
@@ -808,13 +829,10 @@ async function saveUpdate(id, role) {
       if(!newDates[newEst]) newDates[newEst] = new Date().toISOString().slice(0,10);
       changes.dates = newDates;
     }
-    
-    // Capturar cambio de pool para el Owner
     const po = document.getElementById('u-po');
     if(po && parseInt(po.value) !== c.pid) {
        changes.pid = parseInt(po.value);
     }
-
     changes.sit = document.getElementById('u-sit')?.value || c.sit;
     changes.eq  = document.getElementById('u-eq')?.value  || c.eq;
     changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
@@ -838,9 +856,7 @@ async function discardC(id){
   const prev=c.est;
   const moValue = document.getElementById('u-mo')?.value || '';
   const changes = { 
-      est:'Descartado', 
-      mo: moValue,
-      dates:{...(c.dates||{}), Descartado: new Date().toISOString().slice(0,10)} 
+      est:'Descartado', mo: moValue, dates:{...(c.dates||{}), Descartado: new Date().toISOString().slice(0,10)} 
   };
   Object.assign(c, changes); c.dates = changes.dates;
   setSyncStatus('loading');
@@ -905,93 +921,9 @@ async function saveCand(){
   } finally { btn.disabled=false; btn.textContent='Guardar candidato'; }
 }
 
-// =====================================
-// VISTA DE REVISIÓN (RECRUITER)
-// =====================================
-function getReviewCands(){
-  // Ahora SOLO trae los que están pendientes de revisión
-  return cands.filter(c => canSeeCandidate(c) && c.sit === 'Por revisar');
-}
-
-function renderReview(){
-  const pending = getReviewCands();
-  const rb = document.getElementById('review-body'); if(!rb) return;
-
-  const mkCard = (c) => {
-    const staleWarn = isStale(c) ? `<span style="color:var(--amber);font-size:10px"> ⚠${daysInStage(c)}d</span>` : '';
-    return `<div class="rev-card" id="rcard-${c.id}">
-      <div class="rev-card-top">
-        <div style="flex:1;min-width:0">
-          <div class="rev-name">${c.n}${staleWarn}</div>
-          <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
-          ${c.fb ? `<div class="rev-fb">"${c.fb}"</div>` : ''}
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
-          ${estB(c.est)}
-          <button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver detalle</button>
-        </div>
-      </div>
-      ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px;margin-bottom:8px;display:inline-flex">↗ LinkedIn</a>` : ''}
-      
-      <div class="rev-actions">
-        <textarea class="rev-comment" id="rev-fb-${c.id}" placeholder="Comentario (opcional antes de decidir)...">${c.fb||''}</textarea>
-        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar para contactar</button>
-          <button class="btn btn-danger btn-sm" onclick="reviewAction(${c.id},'reject')">✕ Rechazar</button>
-        </div>
-      </div>
-    </div>`;
-  };
-
-  rb.innerHTML = `
-    <div class="mg" style="margin-bottom:16px">
-      <div class="mc"><div class="mcl">Para revisar</div><div class="mcv mv-a">${pending.length}</div><div class="mcs">pendientes</div></div>
-      <div class="mc"><div class="mcl">Rechazados</div><div class="mcv mv-r">${cands.filter(c=>canSeeCandidate(c)&&c.sit==='Rechazado').length}</div><div class="mcs">histórico</div></div>
-    </div>
-
-    ${pending.length ? `
-    <div class="rev-section">
-      <div class="rev-sec-title">⏳ Pendientes de revisión <span class="nb">${pending.length}</span></div>
-      <div class="rev-list">${pending.map(c=>mkCard(c)).join('')}</div>
-    </div>` : `
-    <div style="text-align:center;padding:40px 20px;color:var(--txt3)">
-      <div style="font-size:28px;margin-bottom:8px">✓</div>
-      <div style="font-size:13px">Sin candidatos pendientes de revisión</div>
-      <div style="font-size:11px;margin-top:4px">Los sourcers agregarán nuevos candidatos aquí</div>
-    </div>`}
-  `;
-}
-
-async function reviewAction(id, action){
-  const c = cands.find(x=>x.id===id); if(!c) return;
-  const fbEl = document.getElementById(`rev-fb-${id}`);
-  const fb = fbEl ? fbEl.value.trim() : c.fb||'';
-  const changes = { fb };
-
-  if(action === 'approve') {
-      changes.sit = 'Aprobado';
-  } else if(action === 'reject') {
-      changes.sit = 'Rechazado';
-  }
-
-  Object.assign(c, changes);
-  setSyncStatus('loading');
-  try {
-    await apiCall('updateCandidate', {id, changes, changedBy: CU.name});
-    setSyncStatus('ok');
-  } catch(err){ setSyncStatus('error','⚠ Guardado local'); }
-
-  const labels = {approve:'Aprobado ✓ — Sourcer puede contactar', reject:'Rechazado'};
-  const types  = {approve:'ok', reject:'err'};
-  toast(c.n, labels[action], types[action], action==='approve'?'⬆':'✕');
-  buildSidebar();
-  renderReview();
-}
-
-// GEMINI IA INTEGRATION - ANALYTICS
 function renderAnalytics(){
   const all=cands.filter(c=>canSeeCandidate(c));
-  const byPool=pools.map(p=>({p,n:all.filter(c=>c.pid===p.id).length}));
+  const byPool=pools.map(p=>({p,n:all.filter(c=>Number(c.pid)===Number(p.id)).length}));
   const mos={};
   all.filter(c=>c.mo).forEach(c=>{mos[c.mo]=(mos[c.mo]||0)+1;});
   const topM=Object.entries(mos).sort((a,b)=>b[1]-a[1]).slice(0,5);
@@ -1016,7 +948,7 @@ function renderAnalytics(){
       <div class="ac"><h3>Stacks más frecuentes</h3>${topS.map(([k,v],i)=>`<div class="br-row"><div class="br-label">${k}</div><div class="br-track"><div class="br-fill" style="width:${Math.max(v/mx*100,4)}%;background:${clrs[i]}22;color:${clrs[i]}">${v}</div></div></div>`).join('')}</div>
       <div class="ac"><h3>Estado actual</h3>
         <div class="sr"><span>Total</span><span class="sv">${all.length}</span></div>
-        <div class="sr"><span>Pipeline activo</span><span class="sv mv-g">${all.filter(c=>ACTIVE_S.has(c.est)).length}</span></div>
+        <div class="sr"><span>Pipeline activo</span><span class="sv mv-g">${all.filter(c=>isActiveInPipeline(c)).length}</span></div>
         <div class="sr"><span>Historial</span><span class="sv mv-r">${all.filter(c=>DISC_S.has(c.est)).length}</span></div>
         <div class="sr"><span style="color:var(--amber)">⚠ Estancados</span><span class="sv mv-r">${all.filter(c=>isStale(c)).length}</span></div>
       </div>
@@ -1032,7 +964,7 @@ function renderAnalytics(){
 async function autoInsights(){
   const all=cands.filter(c=>canSeeCandidate(c));
   const stale=all.filter(c=>isStale(c)).length;
-  const prompt=`Eres analista senior de sourcing tech. Pool multi-equipo.\nTotal: ${all.length} | Activos: ${all.filter(c=>ACTIVE_S.has(c.est)).length} | Descartados: ${all.filter(c=>DISC_S.has(c.est)).length} | Estancados: ${stale}\n3 insights accionables en bullets: [problema] → [acción concreta]. Max 80 palabras.`;
+  const prompt=`Eres analista senior de sourcing tech. Pool multi-equipo.\nTotal: ${all.length} | Activos: ${all.filter(c=>isActiveInPipeline(c)).length} | Descartados: ${all.filter(c=>DISC_S.has(c.est)).length} | Estancados: ${stale}\n3 insights accionables en bullets. Max 80 palabras.`;
   try {
     const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`,{
       method:'POST',
@@ -1056,7 +988,7 @@ async function deepAnalysis(){
   const all=cands.filter(c=>canSeeCandidate(c));
   const fbs=all.filter(c=>c.fb).map(c=>`${c.n} (${c.est}): ${c.fb}`).join('\n');
   const stale=all.filter(c=>isStale(c)).map(c=>`${c.n} (${daysInStage(c)}d en ${c.est})`).join(', ');
-  const prompt=`Experta en sourcing tech. Pool: ${all.length} candidatos. Estancados: ${stale||'ninguno'}.\n\nFeedbacks:\n${fbs.substring(0,2200)}\n\n1. Patrón de fallos 2. Perfil que convierte 3. 3 cambios de estrategia 4. Candidatos a reactivar. Max 220 palabras.`;
+  const prompt=`Experta en sourcing tech. Pool: ${all.length} candidatos. Estancados: ${stale||'ninguno'}.\n\nFeedbacks:\n${fbs.substring(0,2200)}\n\n1. Patrón de fallos 2. Perfil que convierte 3. 3 cambios de estrategia. Max 220 palabras.`;
   try {
     const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${API_KEY}`,{
       method:'POST',
@@ -1096,7 +1028,7 @@ function renderConfig(){
     </div>`).join('');
   document.getElementById('cfg-pools').innerHTML=pools.map(p=>`
     <div class="pool-cfg"><h3><span style="width:8px;height:8px;border-radius:50%;background:${p.color};display:inline-block"></span>${p.name}</h3>
-    <div style="font-size:11px;color:var(--txt2)">${p.desc||''} · ${cands.filter(c=>c.pid===p.id).length} candidatos</div></div>`).join('');
+    <div style="font-size:11px;color:var(--txt2)">${p.desc||''} · ${cands.filter(c=>Number(c.pid)===Number(p.id)).length} candidatos</div></div>`).join('');
   document.getElementById('cfg-squads').innerHTML=SQUADS.map(s=>`
     <div class="pool-cfg"><h3>${s.name}</h3>
       <div class="squad-row"><strong>Owners</strong><span>${s.owners.join(', ')}</span></div>
@@ -1148,7 +1080,8 @@ function exportCSV(){
 function openModal(id){ document.getElementById(id).classList.add('open'); }
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 function toast(title,msg,type='inf',icon='ℹ'){
-  const c=document.getElementById('toasts'), el=document.createElement('div');
+  const c=document.getElementById('toasts'); if(!c) return;
+  const el=document.createElement('div');
   el.className=`toast ${type}`;
   el.innerHTML=`<div class="ti">${icon}</div><div><div class="tt">${title}</div>${msg?`<div class="tm">${msg}</div>`:''}</div>`;
   c.appendChild(el);
@@ -1161,9 +1094,6 @@ document.addEventListener('keydown',e=>{
 
 setInterval(()=>{ if(document.getElementById('app').style.display!=='none'&&!IS_OFFLINE) syncNow(); }, 120000);
 
-// ==========================================
-// ARRANQUE AUTOMÁTICO DE LA APLICACIÓN
-// ==========================================
 document.addEventListener('DOMContentLoaded', () => {
   if (SHEETS_URL) {
     document.getElementById('setup').style.display = 'none';
