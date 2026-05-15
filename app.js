@@ -334,31 +334,27 @@ function canAddCandidates() { return HAT !== 'viewer'; }
 function buildSidebar(){
   const poolsEl=document.getElementById('sb-pools');
   if(!canSeePools()){ document.getElementById('sb-pool-sec').style.display='none'; }
-  else {
+  else if (poolsEl) {
     document.getElementById('sb-pool-sec').style.display='';
     poolsEl.innerHTML=pools.map(p=>`
       <button class="ni ni-pool-${p.id}" onclick="nav('pool',${p.id})">
         <span class="dot" style="background:${p.color}"></span>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.name}</span>
-        <span class="nb live">${cands.filter(c=>Number(c.pid)===Number(p.id)&&canSeeCandidate(c)).length}</span>
+        <span class="nb live">${cands.filter(c => Number(c.pid) === Number(p.id) && canSeeCandidate(c)).length}</span>
       </button>`).join('');
   }
   document.querySelectorAll('#btn-add-cand,#btn-add-pipe').forEach(b=>b.style.display=canAddCandidates()?'':'none');
-  const ppf=document.getElementById('pipe-pool-f');
-  if(ppf) ppf.innerHTML='<option value="">Todos los pools</option>'+pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   updateStaleSidebar();
   
   const btnReview = document.getElementById('ni-review');
-  if (btnReview) {
-      btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
-  }
+  if (btnReview) btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
   
   const nbr=document.getElementById('nb-review');
-  // NUEVO: Ahora ignora a los candidatos que ya fueron Descartados (!DISC_S.has(c.est))
+  // AQUÍ EL ARREGLO: Solo cuenta si NO está en el Set de Descartados (DISC_S)
   if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c) && c.sit==='Por revisar' && !DISC_S.has(c.est)).length;
   
   const nbpipe = document.getElementById('nb-pipe');
-  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)).length;
+  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c) && isActiveInPipeline(c)).length;
 }
 
 function updateFooter(){
@@ -552,8 +548,12 @@ function renderKanban(){
 }
 
 function getReviewCands(){
-  // NUEVO: Filtra a los candidatos "Por revisar", pero oculta estrictamente a los que están Descartados o No interesados
-  return cands.filter(c => canSeeCandidate(c) && c.sit === 'Por revisar' && !DISC_S.has(c.est));
+  // Solo candidatos pendientes de aprobación que NO estén descartados ni sean "No interesado"
+  return cands.filter(c => {
+    const isPending = (c.sit === 'Por revisar');
+    const isNotDiscarded = !DISC_S.has(c.est);
+    return canSeeCandidate(c) && isPending && isNotDiscarded;
+  });
 }
 
 function renderReview(){
