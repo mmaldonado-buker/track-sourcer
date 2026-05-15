@@ -298,11 +298,35 @@ async function directLogin(id){
   if(!IS_OFFLINE) setTimeout(()=>syncNow(), 300);
 }
 
-function init(){
-  buildSidebar(); updateFooter(); checkStaleNow();
-  if(HAT==='recruiter' || HAT==='owner') nav('review');
-  else { currentPool=pools[0]?.id||1; nav('pool'); }
-  toast('Bienvenid@',CU.name,CU.role==='viewer'?'inf':'ok','⬡');
+function buildSidebar(){
+  const poolsEl=document.getElementById('sb-pools');
+  if(!canSeePools()){ document.getElementById('sb-pool-sec').style.display='none'; }
+  else {
+    document.getElementById('sb-pool-sec').style.display='';
+    poolsEl.innerHTML=pools.map(p=>`
+      <button class="ni ni-pool-${p.id}" onclick="nav('pool',${p.id})">
+        <span class="dot" style="background:${p.color}"></span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.name}</span>
+        <span class="nb live">${cands.filter(c=>c.pid===p.id&&canSeeCandidate(c)).length}</span>
+      </button>`).join('');
+  }
+  document.querySelectorAll('#btn-add-cand,#btn-add-pipe').forEach(b=>b.style.display=canAddCandidates()?'':'none');
+  const ppf=document.getElementById('pipe-pool-f');
+  if(ppf) ppf.innerHTML='<option value="">Todos los pools</option>'+pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  updateStaleSidebar();
+  
+  // NUEVO: Ocultar botón de Revisión a los Sourcers
+  const btnReview = document.getElementById('ni-review');
+  if (btnReview) {
+      btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
+  }
+  
+  // NUEVO: El globo rojo ahora solo cuenta los que están "Por revisar"
+  const nbr=document.getElementById('nb-review');
+  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c)&&c.sit==='Por revisar').length;
+  
+  const nbpipe = document.getElementById('nb-pipe');
+  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&ACTIVE_S.has(c.est)).length;
 }
 
 // ==========================================
@@ -847,21 +871,19 @@ async function saveCand(){
   } finally { btn.disabled=false; btn.textContent='Guardar candidato'; }
 }
 
+// =====================================
 // VISTA DE REVISIÓN (RECRUITER)
+// =====================================
 function getReviewCands(){
-  return cands.filter(c =>
-    canSeeCandidate(c) &&
-    (c.est === 'Screening' || c.est === 'Contactado') &&
-    c.sit !== 'Rechazado'
-  );
+  // Ahora SOLO trae los que están pendientes de revisión
+  return cands.filter(c => canSeeCandidate(c) && c.sit === 'Por revisar');
 }
 
 function renderReview(){
-  const pending  = getReviewCands().filter(c => c.sit === 'Por revisar');
-  const approved = getReviewCands().filter(c => c.sit === 'Aprobado');
+  const pending = getReviewCands();
   const rb = document.getElementById('review-body'); if(!rb) return;
 
-  const mkCard = (c, showActions) => {
+  const mkCard = (c) => {
     const staleWarn = isStale(c) ? `<span style="color:var(--amber);font-size:10px"> ⚠${daysInStage(c)}d</span>` : '';
     return `<div class="rev-card" id="rcard-${c.id}">
       <div class="rev-card-top">
@@ -876,42 +898,33 @@ function renderReview(){
         </div>
       </div>
       ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px;margin-bottom:8px;display:inline-flex">↗ LinkedIn</a>` : ''}
-      ${showActions ? `
+      
       <div class="rev-actions">
         <textarea class="rev-comment" id="rev-fb-${c.id}" placeholder="Comentario (opcional antes de decidir)...">${c.fb||''}</textarea>
         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar → Entrevista Inicial</button>
-          <button class="btn btn-sm" style="justify-content:center;border-color:var(--amber);color:var(--amber)" onclick="reviewAction(${c.id},'hold')">⏸ En revisión</button>
+          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar para contactar</button>
           <button class="btn btn-danger btn-sm" onclick="reviewAction(${c.id},'reject')">✕ Rechazar</button>
         </div>
-      </div>` : `
-      <div style="font-size:11px;color:var(--green);margin-top:6px">✓ Aprobado — ya está en pipeline activo</div>`}
+      </div>
     </div>`;
   };
 
   rb.innerHTML = `
     <div class="mg" style="margin-bottom:16px">
       <div class="mc"><div class="mcl">Para revisar</div><div class="mcv mv-a">${pending.length}</div><div class="mcs">pendientes</div></div>
-      <div class="mc"><div class="mcl">Aprobados hoy</div><div class="mcv mv-g">${approved.length}</div><div class="mcs">en pipeline</div></div>
-      <div class="mc"><div class="mcl">Rechazados</div><div class="mcv mv-r">${cands.filter(c=>canSeeCandidate(c)&&c.sit==='Rechazado').length}</div><div class="mcs">total</div></div>
+      <div class="mc"><div class="mcl">Rechazados</div><div class="mcv mv-r">${cands.filter(c=>canSeeCandidate(c)&&c.sit==='Rechazado').length}</div><div class="mcs">histórico</div></div>
     </div>
 
     ${pending.length ? `
     <div class="rev-section">
       <div class="rev-sec-title">⏳ Pendientes de revisión <span class="nb">${pending.length}</span></div>
-      <div class="rev-list">${pending.map(c=>mkCard(c,true)).join('')}</div>
+      <div class="rev-list">${pending.map(c=>mkCard(c)).join('')}</div>
     </div>` : `
     <div style="text-align:center;padding:40px 20px;color:var(--txt3)">
       <div style="font-size:28px;margin-bottom:8px">✓</div>
       <div style="font-size:13px">Sin candidatos pendientes de revisión</div>
-      <div style="font-size:11px;margin-top:4px">Los sourcers agregarán nuevos candidatos al pool</div>
+      <div style="font-size:11px;margin-top:4px">Los sourcers agregarán nuevos candidatos aquí</div>
     </div>`}
-
-    ${approved.length ? `
-    <div class="rev-section" style="margin-top:20px">
-      <div class="rev-sec-title">✓ Aprobados — en pipeline <span class="nb" style="background:rgba(45,212,160,0.15);color:var(--green)">${approved.length}</span></div>
-      <div class="rev-list">${approved.map(c=>mkCard(c,false)).join('')}</div>
-    </div>` : ''}
   `;
 }
 
@@ -920,28 +933,23 @@ async function reviewAction(id, action){
   const fbEl = document.getElementById(`rev-fb-${id}`);
   const fb = fbEl ? fbEl.value.trim() : c.fb||'';
   const changes = { fb };
-  const today = new Date().toISOString().slice(0,10);
 
-  if(action === 'approve'){
-    changes.sit = 'Aprobado';
-  } else if(action === 'reject'){
-    changes.sit = 'Rechazado';
-  } else {
-    changes.sit = 'Por revisar';
+  if(action === 'approve') {
+      changes.sit = 'Aprobado';
+  } else if(action === 'reject') {
+      changes.sit = 'Rechazado';
   }
 
   Object.assign(c, changes);
-  if(changes.dates) c.dates = changes.dates;
-
   setSyncStatus('loading');
   try {
     await apiCall('updateCandidate', {id, changes, changedBy: CU.name});
     setSyncStatus('ok');
   } catch(err){ setSyncStatus('error','⚠ Guardado local'); }
 
-  const labels = {approve:'Aprobado ✓ — pasa a Entrevista Inicial', reject:'Rechazado', hold:'Marcado en revisión'};
-  const types  = {approve:'ok', reject:'err', hold:'wrn'};
-  toast(c.n, labels[action], types[action], action==='approve'?'⬆':'↩');
+  const labels = {approve:'Aprobado ✓ — Sourcer puede contactar', reject:'Rechazado'};
+  const types  = {approve:'ok', reject:'err'};
+  toast(c.n, labels[action], types[action], action==='approve'?'⬆':'✕');
   buildSidebar();
   renderReview();
 }
