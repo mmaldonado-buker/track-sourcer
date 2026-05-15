@@ -117,7 +117,7 @@ async function syncNow() {
     const [cResp, pResp] = await Promise.all([sheetsAPI('getCandidates'), sheetsAPI('getPools')]);
     cands = cResp.candidates || []; 
     
-    // Forzar el uso de los nombres de pools correctos si el backend devuelve los viejos o está vacío
+    // 🔥 MAGIA DE CACHÉ: Forzar actualización a los nuevos nombres si vienen los viejos
     let fetchedPools = pResp.pools || [];
     if (fetchedPools.length === 0 || fetchedPools.some(p => p.name === 'Software Engineers' || p.name === 'Tribu Plataforma')) {
         fetchedPools = JSON.parse(JSON.stringify(DEFAULT_POOLS));
@@ -173,7 +173,7 @@ const SQUADS = [
   {id:'C', name:'Squad C', owners:['Laura Rodriguez'],  recruiters:['Joaquín Maragaño'], sourcers:['Matías Maldonado']},
 ];
 
-// AQUÍ ESTÁ EL CAMBIO CLAVE: Los nombres oficiales del Sheet
+// 🔥 NOMBRES OFICIALES (Actualizados para coincidir con tu Google Sheet)
 const DEFAULT_POOLS = [
   {id:1, name:'Devs', desc:'Pool general de ingenieros de software', color:'#5b9cf0'},
   {id:2, name:'PLTF', desc:'DevOps, DevSecOps, DevEx y afines',      color:'#7c6ef0'},
@@ -210,18 +210,18 @@ function loadLocalConfig() {
   USERS.forEach(u => { emailMap[u.name] = u.email; });
   API_KEY = localStorage.getItem('st4_key') || '';
   
-  const sc = localStorage.getItem('st4_cands');
-  cands = sc ? JSON.parse(sc) : JSON.parse(JSON.stringify(SEED));
-  
-  // ¡TRUCO!: Limpiador de Caché. Si el navegador guardó los nombres viejos, los borramos.
+  // 🔥 LIMPIADOR DE CACHÉ: Si detectamos nombres antiguos, borramos la memoria para forzar los nuevos
   let sp = localStorage.getItem('st4_pools');
   if (sp && (sp.includes('Software Engineers') || sp.includes('Tribu Plataforma'))) {
       sp = null;
       localStorage.removeItem('st4_pools');
   }
-  
   pools = sp ? JSON.parse(sp) : JSON.parse(JSON.stringify(DEFAULT_POOLS));
+  
+  const sc = localStorage.getItem('st4_cands');
+  cands = sc ? JSON.parse(sc) : JSON.parse(JSON.stringify(SEED));
 }
+
 function saveLocal() { localStorage.setItem('st4_thresh', JSON.stringify(thresholds)); }
 
 // HELPERS
@@ -360,6 +360,7 @@ function canSeeCandidate(c) {
 function isMyTeamCandidate(c) {
   const sq = SQUADS.find(s => s.id === CU.team);
   if (!sq) return false;
+  // Un owner ve a los candidatos hunteados por sus sourcers o asignados a sus recruiters
   const m = [...sq.owners, ...sq.recruiters, ...sq.sourcers];
   return m.includes(c.src) || m.includes(c.rec);
 }
@@ -623,6 +624,7 @@ function closePanel(){ document.getElementById('panel').classList.remove('open')
 // =====================================
 
 function ownerForm(c,salOk,disc){
+  // Generar las opciones del selector de pools dinámicamente
   const poolOptions = pools.map(p => 
     `<option value="${p.id}" ${p.id === c.pid ? 'selected' : ''}>${p.name}</option>`
   ).join('');
@@ -630,17 +632,14 @@ function ownerForm(c,salOk,disc){
   return `<div class="psec"><div class="pst">Actualizar (Owner/Supervisor)</div><div class="uf">
     
     <label style="color:var(--p2); font-weight:600;">Pool / Categoría del Candidato</label>
-    <select id="u-po" style="margin-bottom:12px; border-color:var(--pborder);">${poolOptions}</select>
+    <select id="u-po" style="margin-bottom:12px; border-color:var(--pborder); background:var(--bg3);">${poolOptions}</select>
 
     <label>Estado pipeline</label>
     <select id="u-est">${[...STAGES,'Descartado','No interesado'].map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}</select>
-    
     <label>Situación</label>
     <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>`<option ${s===c.sit?'selected':''}>${s}</option>`).join('')}</select>
-    
     <label>Equipo sugerido (texto libre)</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
-    
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
     `<div class="ro">Rango salarial — disponible desde Screening</div>`}
     
@@ -825,7 +824,7 @@ async function saveUpdate(id, role) {
       changes.dates = newDates;
     }
     
-    // Capturar el cambio de pool (PID) desde el selector de Owner
+    // 🔥 NUEVO: Capturar cambio de pool para el Owner
     const po = document.getElementById('u-po');
     if(po && parseInt(po.value) !== c.pid) {
        changes.pid = parseInt(po.value);
@@ -1025,7 +1024,6 @@ async function aiCand(id){
     out.textContent=text;
   } catch(e){ out.textContent='Error de conexión con Gemini API.'; }
 }
-
 
 // =====================================
 // VISTA DE REVISIÓN (RECRUITER)
