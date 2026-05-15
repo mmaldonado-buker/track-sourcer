@@ -241,6 +241,16 @@ function updateStaleSidebar(){
   if(nb) nb.textContent=stale.length;
   const sec=document.getElementById('sb-stale-sec');
   if(sec) sec.style.display=stale.length?'':'none';
+  const list=document.getElementById('sb-stale-list');
+  if(!list) return;
+  list.innerHTML=stale.map(c=>`
+    <button class="ni" style="flex-direction:column;align-items:flex-start;padding:7px 10px;gap:2px" onclick="openPanel(${c.id})">
+      <div style="display:flex;width:100%;justify-content:space-between;align-items:center">
+        <span style="font-size:11px;font-weight:600;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px">${c.n}</span>
+        <span style="font-size:10px;color:var(--amber);font-family:var(--mono);flex-shrink:0">${daysInStage(c)}d</span>
+      </div>
+      <span style="font-size:10px;color:var(--txt3)">${c.est}</span>
+    </button>`).join('');
 }
 
 function checkStaleNow(){
@@ -821,7 +831,7 @@ async function autoCategorizarDescarte(idx) {
     Responde ÚNICAMENTE con el nombre de la categoría elegida, sin puntos ni texto extra.
     FEEDBACK: "${feedback}"`;
 
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
@@ -1020,7 +1030,7 @@ async function autoInsights(){
   const stale=all.filter(c=>isStale(c)).length;
   const prompt=`Eres analista senior de sourcing tech. Pool multi-equipo.\nTotal: ${all.length} | Activos: ${all.filter(c=>isActiveInPipeline(c)).length} | Descartados: ${all.filter(c=>DISC_S.has(c.est)).length} | Estancados: ${stale}\n3 insights accionables en bullets. Max 80 palabras.`;
   try {
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`,{
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:350}})
@@ -1044,7 +1054,7 @@ async function deepAnalysis(){
   const stale=all.filter(c=>isStale(c)).map(c=>`${c.n} (${daysInStage(c)}d en ${c.est})`).join(', ');
   const prompt=`Experta en sourcing tech. Pool: ${all.length} candidatos. Estancados: ${stale||'ninguno'}.\n\nFeedbacks:\n${fbs.substring(0,2200)}\n\n1. Patrón de fallos 2. Perfil que convierte 3. 3 cambios de estrategia. Max 220 palabras.`;
   try {
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${API_KEY}`,{
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:700}})
@@ -1063,7 +1073,7 @@ async function aiCand(id){
   const days=daysInStage(c);
   const prompt=`Tech Sourcer assistant. Candidato: ${c.n} | ${c.stack} | ${c.emp} | ${c.s} | ${c.est} (${days??'?'}d) | Eq: ${c.eq} | Sal: ${c.sal||'N/A'}\nFb: ${c.fb||'—'} | Motivo: ${c.mo||'—'}\n3 puntos: 1.Evaluación 2.Próxima acción 3.Riesgo. Max 90 palabras.`;
   try {
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`,{
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:350}})
