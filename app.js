@@ -129,7 +129,7 @@ async function syncNow() {
     localStorage.setItem('st4_cands', JSON.stringify(cands));
     localStorage.setItem('st4_pools', JSON.stringify(pools));
     setSyncStatus('ok'); buildSidebar();
-    const views = ['pool','pipeline','kanban','analytics','review'];
+    const views = ['pool','pipeline','kanban','analytics','review','stale','today'];
     views.forEach(v => {
       const el = document.getElementById('v-' + v);
       if (el && el.style.display !== 'none') {
@@ -241,16 +241,8 @@ function updateStaleSidebar(){
   if(nb) nb.textContent=stale.length;
   const sec=document.getElementById('sb-stale-sec');
   if(sec) sec.style.display=stale.length?'':'none';
-  const list=document.getElementById('sb-stale-list');
-  if(!list) return;
-  list.innerHTML=stale.map(c=>`
-    <button class="ni" style="flex-direction:column;align-items:flex-start;padding:7px 10px;gap:2px" onclick="openPanel(${c.id})">
-      <div style="display:flex;width:100%;justify-content:space-between;align-items:center">
-        <span style="font-size:11px;font-weight:600;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px">${c.n}</span>
-        <span style="font-size:10px;color:var(--amber);font-family:var(--mono);flex-shrink:0">${daysInStage(c)}d</span>
-      </div>
-      <span style="font-size:10px;color:var(--txt3)">${c.est}</span>
-    </button>`).join('');
+  const nbt=document.getElementById('nb-today');
+  if(nbt) nbt.textContent=getTodayCands().length;
 }
 
 function checkStaleNow(){
@@ -337,8 +329,8 @@ async function directLogin(id){
 
 function init(){
   buildSidebar(); updateFooter(); checkStaleNow();
-  if(HAT==='recruiter' || HAT==='owner') nav('review');
-  else { currentPool=pools[0]?.id||1; nav('pool'); }
+  if(HAT==='recruiter' || HAT==='owner') nav('today');
+  else { currentPool=pools[0]?.id||1; nav('today'); }
   toast('Bienvenid@',CU.name,CU.role==='viewer'?'inf':'ok','⬡');
 }
 
@@ -442,6 +434,14 @@ function nav(view, poolId){
     document.getElementById('v-review').style.display='flex';
     document.getElementById('ni-review')?.classList.add('active');
     renderReview();
+  } else if(view==='stale'){
+    document.getElementById('v-stale').style.display='flex';
+    document.getElementById('ni-stale')?.classList.add('active');
+    renderStale();
+  } else if(view==='today'){
+    document.getElementById('v-today').style.display='flex';
+    document.getElementById('ni-today')?.classList.add('active');
+    renderToday();
   } else if(view==='config'){
     document.getElementById('v-config').style.display='flex';
     document.getElementById('ni-config')?.classList.add('active');
@@ -831,7 +831,7 @@ async function autoCategorizarDescarte(idx) {
     Responde ÚNICAMENTE con el nombre de la categoría elegida, sin puntos ni texto extra.
     FEEDBACK: "${feedback}"`;
 
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`, {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
@@ -1030,7 +1030,7 @@ async function autoInsights(){
   const stale=all.filter(c=>isStale(c)).length;
   const prompt=`Eres analista senior de sourcing tech. Pool multi-equipo.\nTotal: ${all.length} | Activos: ${all.filter(c=>isActiveInPipeline(c)).length} | Descartados: ${all.filter(c=>DISC_S.has(c.est)).length} | Estancados: ${stale}\n3 insights accionables en bullets. Max 80 palabras.`;
   try {
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`,{
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:350}})
@@ -1054,7 +1054,7 @@ async function deepAnalysis(){
   const stale=all.filter(c=>isStale(c)).map(c=>`${c.n} (${daysInStage(c)}d en ${c.est})`).join(', ');
   const prompt=`Experta en sourcing tech. Pool: ${all.length} candidatos. Estancados: ${stale||'ninguno'}.\n\nFeedbacks:\n${fbs.substring(0,2200)}\n\n1. Patrón de fallos 2. Perfil que convierte 3. 3 cambios de estrategia. Max 220 palabras.`;
   try {
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`,{
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:700}})
@@ -1073,7 +1073,7 @@ async function aiCand(id){
   const days=daysInStage(c);
   const prompt=`Tech Sourcer assistant. Candidato: ${c.n} | ${c.stack} | ${c.emp} | ${c.s} | ${c.est} (${days??'?'}d) | Eq: ${c.eq} | Sal: ${c.sal||'N/A'}\nFb: ${c.fb||'—'} | Motivo: ${c.mo||'—'}\n3 puntos: 1.Evaluación 2.Próxima acción 3.Riesgo. Max 90 palabras.`;
   try {
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`,{
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:350}})
@@ -1082,6 +1082,131 @@ async function aiCand(id){
     const text=d.candidates?.[0]?.content?.parts?.[0]?.text||'Sin respuesta';
     out.textContent=text;
   } catch(e){ out.textContent='Error de conexión con Gemini API.'; }
+}
+
+
+// =====================================
+// VISTA ESTANCADOS
+// =====================================
+function renderStale(){
+  const stale = getStaleCands();
+  const sb = document.getElementById('stale-body'); if(!sb) return;
+
+  if(!stale.length){
+    sb.innerHTML=`<div style="text-align:center;padding:40px 20px;color:var(--txt3)">
+      <div style="font-size:28px;margin-bottom:8px">✓</div>
+      <div style="font-size:13px">Sin candidatos estancados</div>
+      <div style="font-size:11px;margin-top:4px">Todo el pipeline está al día</div>
+    </div>`;
+    return;
+  }
+
+  // Agrupar por etapa
+  const byStage = {};
+  stale.forEach(c => { if(!byStage[c.est]) byStage[c.est]=[]; byStage[c.est].push(c); });
+
+  sb.innerHTML = `
+    <div class="mg" style="margin-bottom:16px">
+      <div class="mc"><div class="mcl" style="color:var(--amber)">Estancados</div><div class="mcv mv-r">${stale.length}</div><div class="mcs">candidatos</div></div>
+      <div class="mc"><div class="mcl">Promedio</div><div class="mcv mv-r">${Math.round(stale.map(c=>daysInStage(c)||0).reduce((a,b)=>a+b,0)/stale.length)}d</div><div class="mcs">días parados</div></div>
+      <div class="mc"><div class="mcl">Más tiempo</div><div class="mcv mv-r">${Math.max(...stale.map(c=>daysInStage(c)||0))}d</div><div class="mcs">máximo</div></div>
+    </div>
+    ${Object.entries(byStage).map(([stage, cs])=>`
+    <div class="rev-section" style="margin-bottom:20px">
+      <div class="rev-sec-title" style="color:var(--amber)">⚠ ${stage} <span class="nb danger">${cs.length}</span></div>
+      <div class="rev-list">
+        ${cs.sort((a,b)=>(daysInStage(b)||0)-(daysInStage(a)||0)).map(c=>`
+        <div class="rev-card" onclick="openPanel(${c.id})" style="cursor:pointer;border-color:rgba(240,169,64,.25)">
+          <div class="rev-card-top">
+            <div style="flex:1;min-width:0">
+              <div class="rev-name">${c.n} <span style="color:var(--amber);font-size:11px;font-family:var(--mono)">${daysInStage(c)}d</span></div>
+              <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
+              ${c.fb?`<div class="rev-fb">"${c.fb}"</div>`:''}
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+              <span style="font-size:10px;color:var(--txt3)">${c.rec||'—'}</span>
+              <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();openEmailModal(${c.id})">📧 Notificar</button>
+            </div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>`).join('')}
+  `;
+}
+
+// =====================================
+// VISTA MI DÍA
+// =====================================
+function getTodayCands(){
+  const all = cands.filter(c=>canSeeCandidate(c));
+  const result = [];
+  // Pendientes de revisión (recruiter/owner)
+  if(HAT==='recruiter'||HAT==='owner'||HAT==='supervisor'){
+    all.filter(c=>c.sit==='Por revisar'&&c.est==='Contactado').forEach(c=>result.push({c,reason:'Pendiente de revisión'}));
+  }
+  // Estancados propios
+  all.filter(c=>isStale(c)).forEach(c=>{
+    if(!result.find(r=>r.c.id===c.id)) result.push({c,reason:`Estancado — ${daysInStage(c)}d en ${c.est}`});
+  });
+  // En pipeline activo sin feedback
+  all.filter(c=>isActiveInPipeline(c)&&!c.fb&&!DISC_S.has(c.est)).forEach(c=>{
+    if(!result.find(r=>r.c.id===c.id)) result.push({c,reason:'Sin feedback registrado'});
+  });
+  return result;
+}
+
+function renderToday(){
+  const tb = document.getElementById('today-body'); if(!tb) return;
+  document.getElementById('today-title').textContent = `Mi día — ${CU.name.split(' ')[0]}`;
+  const items = getTodayCands();
+  const nbToday = document.getElementById('nb-today');
+  if(nbToday) nbToday.textContent = items.length;
+
+  if(!items.length){
+    tb.innerHTML=`<div style="text-align:center;padding:40px 20px;color:var(--txt3)">
+      <div style="font-size:28px;margin-bottom:8px">🎉</div>
+      <div style="font-size:13px;font-weight:600;color:var(--txt)">Todo al día</div>
+      <div style="font-size:11px;margin-top:6px">No tienes candidatos pendientes por hoy</div>
+    </div>`;
+    return;
+  }
+
+  // Agrupar por motivo
+  const groups = {};
+  items.forEach(({c,reason})=>{ const key=reason.split('—')[0].trim(); if(!groups[key])groups[key]=[]; groups[key].push({c,reason}); });
+
+  const icons = {'Pendiente de revisión':'⏳','Estancado':'⚠','Sin feedback registrado':'💬'};
+  const colors = {'Pendiente de revisión':'var(--p2)','Estancado':'var(--amber)','Sin feedback registrado':'var(--txt2)'};
+
+  tb.innerHTML = `
+    <div class="mg" style="margin-bottom:16px">
+      <div class="mc"><div class="mcl">Pendientes hoy</div><div class="mcv mv-a">${items.length}</div><div class="mcs">acciones</div></div>
+      <div class="mc"><div class="mcl">Para revisar</div><div class="mcv mv-p">${items.filter(x=>x.reason==='Pendiente de revisión').length}</div><div class="mcs">candidatos</div></div>
+      <div class="mc"><div class="mcl">Estancados</div><div class="mcv mv-r">${items.filter(x=>x.reason.startsWith('Estancado')).length}</div><div class="mcs">sin mover</div></div>
+    </div>
+    ${Object.entries(groups).map(([key, list])=>`
+    <div class="rev-section" style="margin-bottom:20px">
+      <div class="rev-sec-title" style="color:${colors[key]||'var(--txt3)'}">
+        ${icons[key]||'•'} ${key} <span class="nb">${list.length}</span>
+      </div>
+      <div class="rev-list">
+        ${list.map(({c,reason})=>`
+        <div class="rev-card" onclick="openPanel(${c.id})" style="cursor:pointer">
+          <div class="rev-card-top">
+            <div style="flex:1;min-width:0">
+              <div class="rev-name">${c.n}</div>
+              <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
+              <div style="font-size:10px;color:${colors[key]||'var(--txt3)'};margin-top:3px">${reason}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+              ${estB(c.est)}
+              <span style="font-size:10px;color:var(--txt3)">${c.rec||c.src||'—'}</span>
+            </div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>`).join('')}
+  `;
 }
 
 function renderConfig(){
