@@ -493,6 +493,8 @@ function getPipeCands(){
 function renderPipeline(){
   const cs=getPipeCands();
   const tb=document.getElementById('pipe-tb'); if(!tb) return;
+  
+  // Dibujar la tabla de candidatos
   tb.innerHTML=cs.length?cs.map(c=>`
     <tr class="${isStale(c)?'stale':''}" onclick="openPanel(${c.id})">
       <td><div class="tdn">${c.n}${isStale(c)?` <span style="color:var(--amber);font-size:10px">⚠</span>`:''}</div>${c.l?`<a class="tdl" href="${c.l}" target="_blank" onclick="event.stopPropagation()">↗</a>`:''}</td>
@@ -507,17 +509,26 @@ function renderPipeline(){
     </tr>`).join(''):`<tr><td colspan="9" class="nr">Sin candidatos en pipeline activo.</td></tr>`;
   
   const all=cands.filter(c=>isActiveInPipeline(c)&&canSeeCandidate(c));
-  document.getElementById('pipe-mg').innerHTML=`
-    <div class="mc"><div class="mcl">En pipeline</div><div class="mcv mv-p">${all.length}</div><div class="mcs">activos</div></div>
-    <div class="mc"><div class="mcl">Sourcing</div><div class="mcv mv-a">${all.filter(c=>c.est==='Contactado'||c.est==='Screening').length}</div><div class="mcs">Cont/Scr</div></div>
-    <div class="mc"><div class="mcl">Reclutamiento</div><div class="mcv" style="color:var(--pink)">${all.filter(c=>c.est==='Entrevista Inicial'||c.est==='Entrevista EM').length}</div><div class="mcs">Entrevistas</div></div>
-    <div class="mc"><div class="mcl">Misión</div><div class="mcv mv-g">${all.filter(c=>c.est==='Misión').length}</div><div class="mcs">Final</div></div>`;
+  const pmg = document.getElementById('pipe-mg');
   
-  const sc=['Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
-  const cnt=sc.map(s=>all.filter(c=>c.est===s).length), mx=Math.max(...cnt,1);
-  const cl=['#60a5fa','#f0a940','#a78bfa','#e06cc0','#2dd4a0'];
-  document.getElementById('pipe-funnel').innerHTML=`<h3 style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">Embudo Total</h3>`+
-    sc.map((s,i)=>`<div class="br-row"><div class="br-label">${s}</div><div class="br-track"><div class="br-fill" style="width:${Math.max(cnt[i]/mx*100,3)}%;background:${cl[i]}22;color:${cl[i]}">${cnt[i]||''}</div></div><div style="font-size:10px;color:var(--txt3);width:18px">${cnt[i]}</div></div>`).join('');
+  // Dibujar métricas superiores
+  if(pmg) {
+    pmg.innerHTML=`
+      <div class="mc"><div class="mcl">En pipeline</div><div class="mcv mv-p">${all.length}</div><div class="mcs">activos</div></div>
+      <div class="mc"><div class="mcl">Sourcing</div><div class="mcv mv-a">${all.filter(c=>c.est==='Contactado'||c.est==='Screening').length}</div><div class="mcs">Cont/Scr</div></div>
+      <div class="mc"><div class="mcl">Reclutamiento</div><div class="mcv" style="color:var(--pink)">${all.filter(c=>c.est==='Entrevista Inicial'||c.est==='Entrevista EM').length}</div><div class="mcs">Entrevistas</div></div>
+      <div class="mc"><div class="mcl">Misión</div><div class="mcv mv-g">${all.filter(c=>c.est==='Misión').length}</div><div class="mcs">Final</div></div>`;
+  }
+  
+  // Dibujar embudo inferior (Protegido por si el HTML no tiene el elemento 'pipe-funnel')
+  const funnel = document.getElementById('pipe-funnel');
+  if(funnel) {
+    const sc=['Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
+    const cnt=sc.map(s=>all.filter(c=>c.est===s).length), mx=Math.max(...cnt,1);
+    const cl=['#60a5fa','#f0a940','#a78bfa','#e06cc0','#2dd4a0'];
+    funnel.innerHTML=`<h3 style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">Embudo Total</h3>`+
+      sc.map((s,i)=>`<div class="br-row"><div class="br-label">${s}</div><div class="br-track"><div class="br-fill" style="width:${Math.max(cnt[i]/mx*100,3)}%;background:${cl[i]}22;color:${cl[i]}">${cnt[i]||''}</div></div><div style="font-size:10px;color:var(--txt3);width:18px">${cnt[i]}</div></div>`).join('');
+  }
 }
 
 function renderKanban(){
