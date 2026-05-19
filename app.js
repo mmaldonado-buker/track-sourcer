@@ -186,15 +186,33 @@ const STAGES   = ['Contactado','Screening','Entrevista Inicial','Entrevista EM',
 const DISC_S   = new Set(['Descartado','No interesado']);
 const SCREEN_S = new Set(['Screening','Entrevista Inicial','Entrevista EM','Misión']);
 
-// NUEVO: Solo entran al Pipeline Activo y Kanban los que están en etapa de entrevistas
+// NUEVO: Función para determinar si el candidato entra en el Pipeline / Kanban
 function isActiveInPipeline(c) {
-  if (!c) return false;
   if (DISC_S.has(c.est)) return false; 
   if (c.sit === 'Rechazado') return false; 
   
-  // SÓLO Entrevista Inicial, Entrevista EM y Misión. Ignora Contactado y Screening.
-  return ['Entrevista Inicial','Entrevista EM','Misión'].includes(c.est);
+  // Si ya avanzó a Screening o más adelante, ESTÁ ACTIVO automáticamente.
+  if (['Screening','Entrevista Inicial','Entrevista EM','Misión'].includes(c.est)) return true;
+  
+  // Si está recién "Contactado", SOLO entra al pipeline si ya fue Aprobado.
+  if (c.est === 'Contactado' && c.sit === 'Aprobado') return true;
+  
+  return false;
 }
+
+const today_d = new Date();
+function daysAgo(n){ const d=new Date(today_d); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+const SEED = [
+  {id:1,pid:2,n:'Brian Guadron',    l:'https://linkedin.com/in/brianguadron',      s:'L2',stack:'JavaScript',  emp:'LifeMiles',      sit:'Aprobado',   est:'Entrevista Inicial',mo:'',src:'Valentina Larenas', rec:'Paula Mahecha',  fb:'Buen candidato pasado dev + devops',         eq:'DevOps',     sal:'',       dates:{Contactado:daysAgo(25),Screening:daysAgo(18),'Entrevista Inicial':daysAgo(12)},dt:daysAgo(25)},
+  {id:2,pid:2,n:'Michael Salgado',  l:'https://linkedin.com/in/michael-salgado',   s:'L2',stack:'Javascript',  emp:'UPRA',           sit:'Aprobado',   est:'Screening',         mo:'',src:'Valentina Larenas', rec:'Paula Mahecha',  fb:'Me gusta, experiencia orientada a producto', eq:'DevOps',     sal:'',       dates:{Contactado:daysAgo(14),Screening:daysAgo(5)},dt:daysAgo(14)},
+  {id:3,pid:1,n:'Daniel Amaya',     l:'https://linkedin.com/in/amayabdaniel',       s:'L3',stack:'RoR, TS',     emp:'Furnished Finder',sit:'Aprobado',  est:'Contactado',        mo:'',src:'Catalina León',    rec:'Gaspar Jaramillo',fb:'Me gustó mucho, hagamos outreach',          eq:'Backend',    sal:'',       dates:{Contactado:daysAgo(3)},dt:daysAgo(3)},
+];
+
+let CU = null, HAT = '', API_KEY = '';
+let pools = [], cands = [];
+let currentPool = null, pipeStageF = '';
+let thresholds = {}, emailMap = {};
+let selUserId = null;
 
 function loadLocalConfig() {
   const st = localStorage.getItem('st4_thresh');
@@ -535,7 +553,9 @@ function renderPipeline(){
       <td onclick="event.stopPropagation()"><button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Editar</button></td>
     </tr>`).join(''):`<tr><td colspan="9" class="nr">Sin candidatos en entrevistas o misión.</td></tr>`;
   
-  const all=cands.filter(c=>isActiveInPipeline(c)&&canSeeCandidate(c));
+  // Métricas superiores (Solo cuenta las entrevistas y misión)
+  const validStages = ['Entrevista Inicial', 'Entrevista EM', 'Misión'];
+  const all=cands.filter(c=> validStages.includes(c.est) && canSeeCandidate(c) && c.sit !== 'Rechazado' && !DISC_S.has(c.est));
   const pmg = document.getElementById('pipe-mg');
   if (pmg) {
     pmg.innerHTML=`
@@ -556,8 +576,8 @@ function renderPipeline(){
 }
 
 function renderKanban(){
-  const stages=['Entrevista Inicial','Entrevista EM','Misión'];
-  const clrs={'Entrevista Inicial':'#a78bfa','Entrevista EM':'#e06cc0','Misión':'#2dd4a0'};
+  const stages=['Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
+  const clrs={'Contactado':'#60a5fa','Screening':'#f0a940','Entrevista Inicial':'#a78bfa','Entrevista EM':'#e06cc0','Misión':'#2dd4a0'};
   
   document.getElementById('kb-board').innerHTML=stages.map(stage=>{
     const cards=cands.filter(c=>c.est===stage && canSeeCandidate(c) && isActiveInPipeline(c));
@@ -572,9 +592,22 @@ function renderKanban(){
   }).join('');
 }
 
+function getReviewCands(){
+  // Solo candidatos sin situación asignada (blanco) — pendientes que el recruiter decida
+  return cands.filter(c => canSeeCandidate(c) && (!c.sit || c.sit === '') && !DISC_S.has(c.est));
+}
+
 function renderReview(){
-  const pending = getReviewCands();
   const rb = document.getElementById('review-body'); if(!rb) return;
+  // Bloqueo duro: sourcer nunca puede ver ni usar esta vista
+  if(HAT === 'sourcer'){
+    rb.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--txt3)">
+      <div style="font-size:24px;margin-bottom:8px">⛔</div>
+      <div style="font-size:13px">Solo recruiters y owners pueden revisar candidatos</div>
+    </div>`;
+    return;
+  }
+  const pending = getReviewCands();
 
   const mkCard = (c) => {
     const staleWarn = isStale(c) ? `<span style="color:var(--amber);font-size:10px"> ⚠${daysInStage(c)}d</span>` : '';
@@ -590,15 +623,13 @@ function renderReview(){
           <button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver detalle</button>
         </div>
       </div>
-      <div style="margin-bottom:8px">
-        ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px;display:inline-flex">↗ LinkedIn</a>` : ''}
-        ${c.cv ? `<a href="${c.cv}" target="_blank" class="tdl" style="font-size:11px;display:inline-flex;margin-left:10px;color:var(--p)">📄 Ver CV</a>` : ''}
-      </div>
+      ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px;margin-bottom:8px;display:inline-flex">↗ LinkedIn</a>` : ''}
       <div class="rev-actions">
-        <textarea class="rev-comment" id="rev-fb-${c.id}" placeholder="Comentario para el sourcer (opcional)...">${c.fb||''}</textarea>
+        <textarea class="rev-comment" id="rev-fb-${c.id}" placeholder="Comentario (opcional antes de decidir)...">${c.fb||''}</textarea>
         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar para contactar</button>
-          <button class="btn btn-danger btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'reject')">✕ Rechazar</button>
+          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar</button>
+          <button class="btn btn-sm" style="justify-content:center;border-color:var(--amber);color:var(--amber)" onclick="reviewAction(${c.id},'review')">⏸ Que el sourcer evalúe</button>
+          <button class="btn btn-danger btn-sm" onclick="reviewAction(${c.id},'reject')">✕ Rechazar</button>
         </div>
       </div>
     </div>`;
@@ -628,8 +659,9 @@ async function reviewAction(id, action){
   const fb = fbEl ? fbEl.value.trim() : c.fb||'';
   const changes = { fb };
 
-  if(action === 'approve') changes.sit = 'Aprobado';
-  else if(action === 'reject') changes.sit = 'Rechazado';
+  if(action === 'approve')      changes.sit = 'Aprobado';
+  else if(action === 'review')  changes.sit = 'Por revisar';
+  else if(action === 'reject')  changes.sit = 'Rechazado';
 
   Object.assign(c, changes);
   setSyncStatus('loading');
@@ -638,15 +670,16 @@ async function reviewAction(id, action){
     setSyncStatus('ok');
   } catch(err){ setSyncStatus('error','⚠ Guardado local'); }
 
-  const labels = {approve:'Aprobado ✓ — Sourcer puede contactar', reject:'Rechazado ✕'};
-  const types  = {approve:'ok', reject:'err'};
+  const labels = {approve:'Aprobado ✓ — Sourcer puede avanzar', review:'Para revisar — el sourcer puede contactar y evaluar', reject:'Rechazado'};
+  const types  = {approve:'ok', review:'wrn', reject:'err'};
   toast(c.n, labels[action], types[action], action==='approve'?'⬆':'✕');
-  buildSidebar(); renderReview();
+  buildSidebar();
+  renderReview();
 }
 
 function openPanel(id){
   const c=cands.find(x=>x.id===id); if(!c||!canSeeCandidate(c)) return;
-  const init=(c.n||'S').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
+  const init=c.n.split(' ').slice(0,2).map(x=>x[0]).join('').toUpperCase();
   const salOk=SCREEN_S.has(c.est)||!!c.sal;
   const disc=DISC_S.has(c.est), editable=canEdit(c), fullEdit=canEditFull(c), stale=isStale(c);
   const timelineHTML=`<div class="timeline">${STAGES.map(s=>{
@@ -671,10 +704,7 @@ function openPanel(id){
       </div>
       <button class="pc" onclick="closePanel()">✕</button>
     </div>
-    <div style="margin-bottom:12px;display:flex;gap:12px">
-      ${c.l?`<a href="${c.l}" target="_blank" class="tdl" style="font-size:12px;display:inline-flex">↗ LinkedIn</a>`:''}
-      ${c.cv?`<a href="${c.cv}" target="_blank" class="tdl" style="font-size:12px;display:inline-flex;color:var(--p)">📄 Ver CV</a>`:''}
-    </div>
+    ${c.l?`<a href="${c.l}" target="_blank" class="tdl" style="font-size:12px;margin-bottom:12px;display:inline-flex">↗ Ver en LinkedIn</a>`:''}
     ${stale?`<div style="background:var(--abg);border:1px solid var(--aborder);border-radius:var(--r);padding:8px 11px;margin-bottom:12px;font-size:12px;color:var(--amber)">⚠ <strong>Candidato estancado</strong> — ${daysInStage(c)} días en ${c.est} (umbral: ${thresholds[c.est]||10}d)<br><button class="btn btn-amber btn-sm" style="margin-top:6px" onclick="openEmailModal(${c.id})">📧 Generar notificación</button></div>`:''}
     <div class="psec"><div class="pst">Pipeline</div>${pSteps(c)}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${sitB(c.sit)} ${estB(c.est)}${c.mo?` <span class="badge" style="background:var(--bg4);color:var(--txt3)">${c.mo}</span>`:''}</div></div>
     <div class="psec"><div class="pst">Historial de fechas</div>${timelineHTML}</div>
@@ -702,8 +732,6 @@ function ownerForm(c,salOk,disc){
     <select id="u-est">${[...STAGES,'Descartado','No interesado'].map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}</select>
     <label>Situación</label>
     <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>`<option ${s===c.sit?'selected':''}>${s}</option>`).join('')}</select>
-    <label>URL del CV (Drive, PDF)</label>
-    <input type="url" id="u-cv" value="${c.cv||''}" placeholder="Pega el link del documento...">
     <label>Equipo sugerido (texto libre)</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
@@ -746,8 +774,6 @@ function recruiterForm(c){
     </div>`}
     <label>Decisión</label>
     <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>`<option ${s===c.sit?'selected':''}>${s}</option>`).join('')}</select>
-    <label>URL del CV (Drive, PDF)</label>
-    <input type="url" id="u-cv" value="${c.cv||''}" placeholder="Pega el link del documento...">
     <label>Comentarios</label>
     <textarea id="u-fb" placeholder="Justificación o notas para el sourcer...">${c.fb||''}</textarea>
     <button class="btn btn-p btn-sm" style="width:100%;justify-content:center" onclick="saveUpdate(${c.id},'recruiter')">Guardar decisión</button>
@@ -755,26 +781,28 @@ function recruiterForm(c){
 }
 
 function sourcerForm(c,salOk){
-  const canAdvance = c.sit === 'Aprobado' || c.sit === 'Por revisar';
+  const isBlank    = !c.sit || c.sit === '';
   const isRejected = c.sit === 'Rechazado';
+  const canAdvance = c.sit === 'Aprobado' || c.sit === 'Por revisar';
   const stagesAllowed = canAdvance ? [...STAGES,'Descartado'] : [c.est];
   return `<div class="psec"><div class="pst">Actualizar (Sourcer)</div><div class="uf">
-    ${isRejected ? `
+    ${isBlank ? `
+    <div style="font-size:11px;color:var(--txt3);padding:9px 11px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2);margin-bottom:8px">
+      ⏳ Pendiente de revisión — el recruiter aún no ha dado el visto bueno.
+    </div>` : isRejected ? `
     <div style="font-size:11px;color:var(--red);padding:9px 11px;background:rgba(224,92,92,.08);border-radius:var(--r);border-left:2px solid var(--red);margin-bottom:8px">
-      ✕ Candidato <strong>rechazado</strong> por el recruiter.
+      ✕ Candidato <strong>rechazado</strong> por el recruiter — no puede avanzar en el proceso.
     </div>` : c.sit === 'Por revisar' ? `
     <div style="font-size:11px;color:var(--amber);padding:9px 11px;background:rgba(240,169,64,.08);border-radius:var(--r);border-left:2px solid var(--amber);margin-bottom:8px">
-      ⏸ En revisión por el recruiter.
+      ⏸ <strong>Para revisar</strong> — el recruiter te da luz verde para contactar al candidato y evaluar si aplica al cargo.
     </div>` : c.sit === 'Aprobado' ? `
     <div style="font-size:11px;color:var(--green);padding:9px 11px;background:rgba(45,212,160,.08);border-radius:var(--r);border-left:2px solid var(--green);margin-bottom:8px">
-      ✓ Candidato <strong>aprobado</strong> por el recruiter.
+      ✓ Candidato <strong>aprobado</strong> por el recruiter — puedes avanzar el proceso.
     </div>` : ''}
     <label>Estado pipeline</label>
     <select id="u-est" ${isRejected?'disabled':''}>
       ${stagesAllowed.map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}
     </select>
-    <label>URL del CV (Drive, PDF)</label>
-    <input type="url" id="u-cv" value="${c.cv||''}" placeholder="Pega el link del documento...">
     <label>Equipo sugerido</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
@@ -782,6 +810,7 @@ function sourcerForm(c,salOk){
     <label>Feedback / Notas</label><textarea id="u-fb">${c.fb||''}</textarea>
     <div style="display:flex;gap:6px;flex-direction:column">
       ${!isRejected?`<button class="btn btn-p btn-sm" style="justify-content:center" onclick="saveUpdate(${c.id},'sourcer')">Guardar cambios</button>`:''}
+      ${c.sit==='Por revisar'?`<button class="btn btn-amber btn-sm" style="justify-content:center" onclick="openEmailModal(${c.id})">📧 Notificar al Recruiter</button>`:''}
     </div>
   </div></div>`;
 }
@@ -791,31 +820,52 @@ async function autoCategorizarDescarte(idx) {
   const statusDiv = document.getElementById('ai-motivo-status');
   const selectMotivo = document.getElementById('u-mo');
 
-  if (!API_KEY) { statusDiv.innerHTML = '<span style="color:var(--amber)">⚠ Requiere API Key de Gemini.</span>'; return; }
-  if (!feedback.trim()) { statusDiv.innerHTML = '<span style="color:var(--amber)">⚠ Escribe un feedback en la casilla de arriba primero.</span>'; return; }
+  if (!API_KEY) {
+      statusDiv.innerHTML = '<span style="color:var(--amber)">⚠ Requiere API Key de Gemini.</span>';
+      return;
+  }
+
+  if (!feedback.trim()) {
+    statusDiv.innerHTML = '<span style="color:var(--amber)">⚠ Escribe un feedback en la casilla de arriba primero.</span>';
+    return;
+  }
 
   statusDiv.innerHTML = '<span style="color:var(--txt2)">✨ Analizando feedback con Gemini...</span>';
 
   try {
     const prompt = `Actúa como un Tech Recruiter. Lee este feedback de un candidato descartado y clasifícalo en UNA sola categoría exacta de esta lista: Renta, Stack o tecnología, Experiencia, Seniority, Formación, No contesta, No hay fit, No interés, Se bajó del proceso. 
-    Responde ÚNICAMENTE con el nombre de la categoría elegida. FEEDBACK: "${feedback}"`;
+    Responde ÚNICAMENTE con el nombre de la categoría elegida, sin puntos ni texto extra.
+    FEEDBACK: "${feedback}"`;
 
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
+
     const d = await r.json();
     if (d.error) throw new Error(d.error.message);
 
     let categoriaIA = d.candidates[0].content.parts[0].text.trim();
+    
     let matchEncontrado = false;
     for (let i = 0; i < selectMotivo.options.length; i++) {
       if (selectMotivo.options[i].value.toLowerCase() === categoriaIA.toLowerCase()) {
-        selectMotivo.selectedIndex = i; matchEncontrado = true; break;
+        selectMotivo.selectedIndex = i;
+        matchEncontrado = true;
+        break;
       }
     }
-    if(matchEncontrado){ statusDiv.innerHTML = `<span style="color:var(--green)">✓ Clasificado como: <strong>${categoriaIA}</strong></span>`; } 
-    else { statusDiv.innerHTML = `<span style="color:var(--amber)">⚠ IA sugirió: "${categoriaIA}". Elige manual.</span>`; }
-  } catch (err) { statusDiv.innerHTML = '<span style="color:var(--red)">⚠ Error al conectar con IA.</span>'; }
+
+    if(matchEncontrado){
+        statusDiv.innerHTML = `<span style="color:var(--green)">✓ Clasificado como: <strong>${categoriaIA}</strong></span>`;
+    } else {
+        statusDiv.innerHTML = `<span style="color:var(--amber)">⚠ IA sugirió: "${categoriaIA}". Elige manual.</span>`;
+    }
+
+  } catch (err) {
+    statusDiv.innerHTML = '<span style="color:var(--red)">⚠ Error al conectar con IA.</span>';
+  }
 }
 
 async function saveUpdate(id, role) {
@@ -826,9 +876,15 @@ async function saveUpdate(id, role) {
   if(role==='recruiter'){
     changes.sit = document.getElementById('u-sit').value;
     changes.fb  = document.getElementById('u-fb').value;
-    const cvEl = document.getElementById('u-cv'); if(cvEl) changes.cv = cvEl.value.trim();
   } else if(role==='sourcer'){
-    if(c.sit === 'Rechazado'){ toast('Sin permisos','Candidato rechazado','err','✕'); return; }
+    if(isBlank || (!c.sit || c.sit === '')){
+      toast('Pendiente de revisión','El recruiter aún no ha dado el visto bueno','wrn','⏳');
+      return;
+    }
+    if(c.sit === 'Rechazado'){
+      toast('Sin permisos','El recruiter rechazó este candidato — no puede avanzar','err','✕');
+      return;
+    }
     const newEst = document.getElementById('u-est')?.value;
     if(newEst) {
       changes.est = newEst;
@@ -839,7 +895,6 @@ async function saveUpdate(id, role) {
     changes.eq  = document.getElementById('u-eq')?.value  || c.eq;
     changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
     const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
-    const cvEl = document.getElementById('u-cv'); if(cvEl) changes.cv = cvEl.value.trim();
   } else {
     const newEst = document.getElementById('u-est')?.value;
     if(newEst) {
@@ -848,13 +903,15 @@ async function saveUpdate(id, role) {
       if(!newDates[newEst]) newDates[newEst] = new Date().toISOString().slice(0,10);
       changes.dates = newDates;
     }
-    const po = document.getElementById('u-po'); if(po && parseInt(po.value) !== c.pid) changes.pid = parseInt(po.value);
+    const po = document.getElementById('u-po');
+    if(po && parseInt(po.value) !== c.pid) {
+       changes.pid = parseInt(po.value);
+    }
     changes.sit = document.getElementById('u-sit')?.value || c.sit;
     changes.eq  = document.getElementById('u-eq')?.value  || c.eq;
     changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
     if(role!=='sourcer') changes.mo = document.getElementById('u-mo')?.value || c.mo;
     const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
-    const cvEl = document.getElementById('u-cv'); if(cvEl) changes.cv = cvEl.value.trim();
   }
 
   Object.assign(c, changes);
