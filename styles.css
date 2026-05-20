@@ -94,6 +94,7 @@ tbody td{padding:9px 12px;vertical-align:middle}
 .ba{background:var(--gbg);color:var(--green)}
 .br{background:var(--rbg);color:var(--red)}
 .bpr{background:var(--abg);color:var(--amber)}
+.bpc{background:var(--pbg);color:var(--p2);border:1px solid var(--pborder)}
 .bco{background:var(--bbg);color:var(--blue)}
 .bsc{background:var(--pbg);color:var(--p3)}
 .bei{background:#a78bfa15;color:#a78bfa}
