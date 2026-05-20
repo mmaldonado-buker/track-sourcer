@@ -129,7 +129,7 @@ async function syncNow() {
     localStorage.setItem('st4_cands', JSON.stringify(cands));
     localStorage.setItem('st4_pools', JSON.stringify(pools));
     setSyncStatus('ok'); buildSidebar();
-    const views = ['pool','pipeline','kanban','analytics','review','stale','today'];
+    const views = ['pool','pipeline','kanban','analytics','review','stale','today','contactar'];
     views.forEach(v => {
       const el = document.getElementById('v-' + v);
       if (el && el.style.display !== 'none') {
@@ -138,6 +138,7 @@ async function syncNow() {
         if (v === 'kanban') renderKanban();
         if (v === 'analytics') renderAnalytics();
         if (v === 'review') renderReview();
+        if (v === 'contactar') renderContactar();
       }
     });
     toast('Sincronizado', `${cands.length} candidatos · ${pools.length} pools`, 'ok', '↻');
@@ -181,23 +182,32 @@ const DEFAULT_POOLS = [
   {id:3, name:'EM',   desc:'Engineering Managers por célula',        color:'#e06cc0'},
 ];
 
-const DEFAULT_THRESHOLDS = { 'Contactado':7, 'Screening':7, 'Entrevista Inicial':10, 'Entrevista EM':10, 'Misión':14 };
-const STAGES   = ['Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
+const DEFAULT_THRESHOLDS = { 'Por contactar':5, 'Contactado':7, 'Screening':7, 'Entrevista Inicial':10, 'Entrevista EM':10, 'Misión':14 };
+
+// STAGES: flujo completo de un candidato
+// "Por contactar" = aprobado por recruiter, aún no contactado por sourcer
+const STAGES   = ['Por contactar','Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
 const DISC_S   = new Set(['Descartado','No interesado']);
 const SCREEN_S = new Set(['Screening','Entrevista Inicial','Entrevista EM','Misión']);
 
-// NUEVO: Función para determinar si el candidato entra en el Pipeline / Kanban
+// ─── MAPEO DE COMPATIBILIDAD DE BASE DE DATOS ───────────────────────────────
+// Candidatos que en la BD vienen como "Por revisar" se tratan como Aprobados
+// (la BD actual usa "Por revisar" como estado intermedio legacy)
+function normalizeSit(sit) {
+  if (!sit || sit === '' || sit === 'Por revisar') return 'Aprobado';
+  return sit; // 'Aprobado' | 'Rechazado'
+}
+// ────────────────────────────────────────────────────────────────────────────
+
+// Un candidato está activo en pipeline si:
+// - No está descartado/rechazado
+// - Está en "Por contactar" (aprobado, esperando contacto del sourcer)
+// - O ya avanzó a Contactado o más adelante
 function isActiveInPipeline(c) {
-  if (DISC_S.has(c.est)) return false; 
-  if (c.sit === 'Rechazado') return false; 
-  
-  // Si ya avanzó a Screening o más adelante, ESTÁ ACTIVO automáticamente.
-  if (['Screening','Entrevista Inicial','Entrevista EM','Misión'].includes(c.est)) return true;
-  
-  // Si está recién "Contactado", SOLO entra al pipeline si ya fue Aprobado.
-  if (c.est === 'Contactado' && c.sit === 'Aprobado') return true;
-  
-  return false;
+  if (DISC_S.has(c.est)) return false;
+  if (normalizeSit(c.sit) === 'Rechazado') return false;
+  const activeStages = ['Por contactar','Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
+  return activeStages.includes(c.est);
 }
 
 const today_d = new Date();
@@ -382,10 +392,15 @@ function buildSidebar(){
   updateStaleSidebar();
   
   const btnReview = document.getElementById('ni-review');
-  if (btnReview) {
-      btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
-  }
-  
+  if (btnReview) btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
+
+  // "Por contactar" solo visible para sourcers (y owners/supervisor)
+  const btnContactar = document.getElementById('ni-contactar');
+  if (btnContactar) btnContactar.style.display = (HAT === 'recruiter') ? 'none' : 'flex';
+
+  const nbcontactar = document.getElementById('nb-contactar');
+  if(nbcontactar) nbcontactar.textContent = getContactarCands().length;
+
   const nbr=document.getElementById('nb-review');
   // ARREGLO: Solo cuenta los que están "Por revisar" y ESTRICTAMENTE en la etapa "Contactado"
   if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c) && (!c.sit||c.sit==='') && !DISC_S.has(c.est)).length;
@@ -430,6 +445,10 @@ function nav(view, poolId){
     document.getElementById('v-analytics').style.display='flex';
     document.getElementById('ni-analytics')?.classList.add('active');
     renderAnalytics();
+  } else if(view==='contactar'){
+    document.getElementById('v-contactar').style.display='flex';
+    document.getElementById('ni-contactar')?.classList.add('active');
+    renderContactar();
   } else if(view==='review'){
     document.getElementById('v-review').style.display='flex';
     document.getElementById('ni-review')?.classList.add('active');
@@ -450,7 +469,7 @@ function nav(view, poolId){
 }
 
 function sitB(s){ const m={Aprobado:'ba',Rechazado:'br','Por revisar':'bpr'}; return `<span class="badge ${m[s]||''}">${s||'—'}</span>`; }
-function estB(e){ const m={Contactado:'bco',Screening:'bsc','Entrevista Inicial':'bei','Entrevista EM':'bem',Misión:'bmi',Descartado:'bde','No interesado':'bde'}; return `<span class="badge ${m[e]||''}">${e||'—'}</span>`; }
+function estB(e){ const m={'Por contactar':'bpc',Contactado:'bco',Screening:'bsc','Entrevista Inicial':'bei','Entrevista EM':'bem',Misión:'bmi',Descartado:'bde','No interesado':'bde'}; return `<span class="badge ${m[e]||''}">${e||'—'}</span>`; }
 function chips(s){ if(!s) return '—'; return s.split(',').map(x=>`<span class="chip">${x.trim()}</span>`).join(''); }
 function pname(id){ return pools.find(p=>p.id==id)?.name||'—'; }
 function pcolor(id){ return pools.find(p=>p.id==id)?.color||'var(--txt3)'; }
@@ -593,7 +612,9 @@ function renderKanban(){
 }
 
 function getReviewCands(){
-  // Solo candidatos sin situación asignada (blanco) — pendientes que el recruiter decida
+  // Solo candidatos sin situación asignada — pendientes de decisión del recruiter
+  // Nota: "Por revisar" de la BD se trata como Aprobado via normalizeSit(),
+  // así que aquí solo aparecen los que genuinamente no tienen sit (sit === '' o null)
   return cands.filter(c => canSeeCandidate(c) && (!c.sit || c.sit === '') && !DISC_S.has(c.est));
 }
 
@@ -627,8 +648,7 @@ function renderReview(){
       <div class="rev-actions">
         <textarea class="rev-comment" id="rev-fb-${c.id}" placeholder="Comentario (opcional antes de decidir)...">${c.fb||''}</textarea>
         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar</button>
-          <button class="btn btn-sm" style="justify-content:center;border-color:var(--amber);color:var(--amber)" onclick="reviewAction(${c.id},'review')">⏸ Que el sourcer evalúe</button>
+          <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="reviewAction(${c.id},'approve')">✓ Aprobar — pasa a Por contactar</button>
           <button class="btn btn-danger btn-sm" onclick="reviewAction(${c.id},'reject')">✕ Rechazar</button>
         </div>
       </div>
@@ -653,28 +673,114 @@ function renderReview(){
   `;
 }
 
+// =====================================
+// VISTA POR CONTACTAR
+// =====================================
+function getContactarCands(){
+  return cands.filter(c =>
+    canSeeCandidate(c) &&
+    c.est === 'Por contactar' &&
+    normalizeSit(c.sit) === 'Aprobado' &&
+    !DISC_S.has(c.est)
+  );
+}
+
+function renderContactar(){
+  const cb = document.getElementById('contactar-body'); if(!cb) return;
+  const pending = getContactarCands();
+
+  if(!pending.length){
+    cb.innerHTML=`<div style="text-align:center;padding:40px 20px;color:var(--txt3)">
+      <div style="font-size:28px;margin-bottom:8px">📭</div>
+      <div style="font-size:13px;font-weight:600;color:var(--txt)">Sin candidatos por contactar</div>
+      <div style="font-size:11px;margin-top:6px">Cuando el recruiter apruebe perfiles, aparecerán aquí</div>
+    </div>`;
+    return;
+  }
+
+  cb.innerHTML = `
+    <div class="mg" style="margin-bottom:16px">
+      <div class="mc"><div class="mcl" style="color:var(--p2)">Por contactar</div><div class="mcv mv-p">${pending.length}</div><div class="mcs">aprobados listos</div></div>
+      <div class="mc"><div class="mcl">Hoy</div><div class="mcv mv-g">${pending.filter(c=>c.dates?.['Por contactar']===new Date().toISOString().slice(0,10)).length}</div><div class="mcs">aprobados hoy</div></div>
+    </div>
+    <div class="rev-section">
+      <div class="rev-sec-title" style="color:var(--p2)">📬 Listos para contactar <span class="nb live">${pending.length}</span></div>
+      <div class="rev-list">
+        ${pending.map(c => {
+          const daysWaiting = daysInStage(c) ?? 0;
+          const urgency = daysWaiting >= 3 ? `<span style="color:var(--amber);font-size:10px;font-weight:600"> ⚠ ${daysWaiting}d esperando</span>` : `<span style="color:var(--txt3);font-size:10px"> ${daysWaiting}d</span>`;
+          return `<div class="rev-card" id="ccard-${c.id}">
+            <div class="rev-card-top">
+              <div style="flex:1;min-width:0">
+                <div class="rev-name">${c.n}${urgency}</div>
+                <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
+                <div style="font-size:10px;color:var(--txt3);margin-top:2px">Pool: ${pname(c.pid)} · Eq: ${c.eq||'—'}</div>
+                ${c.fb ? `<div class="rev-fb">"${c.fb}"</div>` : ''}
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+                ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px" onclick="event.stopPropagation()">↗ LinkedIn</a>` : ''}
+                <button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver detalle</button>
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:10px">
+              <button class="btn btn-p btn-sm" style="flex:1;justify-content:center" onclick="marcarContactado(${c.id})">✓ Marquar como Contactado</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+async function marcarContactado(id){
+  const c = cands.find(x=>x.id===id); if(!c) return;
+  const today = new Date().toISOString().slice(0,10);
+  const changes = {
+    est: 'Contactado',
+    dates: {...(c.dates||{}), Contactado: today}
+  };
+  Object.assign(c, changes); c.dates = changes.dates;
+  setSyncStatus('loading');
+  try {
+    await apiCall('updateCandidate', {id, changes, changedBy: CU.name});
+    setSyncStatus('ok');
+  } catch(err){ setSyncStatus('error','⚠ Guardado local'); }
+  toast(c.n, 'Marcado como Contactado ✓', 'ok', '📬');
+  buildSidebar();
+  renderContactar();
+  // Si el panel está abierto para este candidato, refrescarlo
+  if(document.getElementById('panel').classList.contains('open')) openPanel(id);
+}
 async function reviewAction(id, action){
   const c = cands.find(x=>x.id===id); if(!c) return;
   const fbEl = document.getElementById(`rev-fb-${id}`);
   const fb = fbEl ? fbEl.value.trim() : c.fb||'';
   const changes = { fb };
 
-  if(action === 'approve')      changes.sit = 'Aprobado';
-  else if(action === 'review')  changes.sit = 'Por revisar';
+  if(action === 'approve') {
+    changes.sit = 'Aprobado';
+    // Al aprobar: si el candidato no ha sido contactado aún, pasa a "Por contactar"
+    if (!c.est || c.est === 'Contactado' || c.est === '') {
+      changes.est = 'Por contactar';
+      const newDates = {...(c.dates||{})};
+      if(!newDates['Por contactar']) newDates['Por contactar'] = new Date().toISOString().slice(0,10);
+      changes.dates = newDates;
+    }
+  }
   else if(action === 'reject')  changes.sit = 'Rechazado';
 
   Object.assign(c, changes);
+  if(changes.dates) c.dates = changes.dates;
   setSyncStatus('loading');
   try {
     await apiCall('updateCandidate', {id, changes, changedBy: CU.name});
     setSyncStatus('ok');
   } catch(err){ setSyncStatus('error','⚠ Guardado local'); }
 
-  const labels = {approve:'Aprobado ✓ — Sourcer puede avanzar', review:'Para revisar — el sourcer puede contactar y evaluar', reject:'Rechazado'};
-  const types  = {approve:'ok', review:'wrn', reject:'err'};
+  const labels = {approve:'Aprobado ✓ — Sourcer puede contactar', reject:'Rechazado'};
+  const types  = {approve:'ok', reject:'err'};
   toast(c.n, labels[action], types[action], action==='approve'?'⬆':'✕');
-  buildSidebar();
-  renderReview();
+  buildSidebar(); renderReview();
 }
 
 function openPanel(id){
@@ -781,24 +887,27 @@ function recruiterForm(c){
 }
 
 function sourcerForm(c,salOk){
-  const isBlank    = !c.sit || c.sit === '';
-  const isRejected = c.sit === 'Rechazado';
-  const canAdvance = c.sit === 'Aprobado' || c.sit === 'Por revisar';
-  const stagesAllowed = canAdvance ? [...STAGES,'Descartado'] : [c.est];
+  const sitNorm    = normalizeSit(c.sit);
+  const isUndecided = !c.sit || c.sit === '';
+  const isRejected  = sitNorm === 'Rechazado';
+  const isApproved  = sitNorm === 'Aprobado';
+  const isPorContactar = c.est === 'Por contactar';
+  const stagesAllowed = isRejected ? [c.est] : [...STAGES,'Descartado'];
+
   return `<div class="psec"><div class="pst">Actualizar (Sourcer)</div><div class="uf">
-    ${isBlank ? `
+    ${isUndecided ? `
     <div style="font-size:11px;color:var(--txt3);padding:9px 11px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2);margin-bottom:8px">
       ⏳ Pendiente de revisión — el recruiter aún no ha dado el visto bueno.
     </div>` : isRejected ? `
     <div style="font-size:11px;color:var(--red);padding:9px 11px;background:rgba(224,92,92,.08);border-radius:var(--r);border-left:2px solid var(--red);margin-bottom:8px">
       ✕ Candidato <strong>rechazado</strong> por el recruiter — no puede avanzar en el proceso.
-    </div>` : c.sit === 'Por revisar' ? `
-    <div style="font-size:11px;color:var(--amber);padding:9px 11px;background:rgba(240,169,64,.08);border-radius:var(--r);border-left:2px solid var(--amber);margin-bottom:8px">
-      ⏸ <strong>Para revisar</strong> — el recruiter te da luz verde para contactar al candidato y evaluar si aplica al cargo.
-    </div>` : c.sit === 'Aprobado' ? `
+    </div>` : isPorContactar ? `
+    <div style="font-size:11px;color:var(--p2);padding:9px 11px;background:var(--pbg);border-radius:var(--r);border-left:2px solid var(--p);margin-bottom:8px">
+      📬 <strong>Aprobado — listo para contactar.</strong> Cuando lo contactes, márcalo como Contactado.
+    </div>` : `
     <div style="font-size:11px;color:var(--green);padding:9px 11px;background:rgba(45,212,160,.08);border-radius:var(--r);border-left:2px solid var(--green);margin-bottom:8px">
-      ✓ Candidato <strong>aprobado</strong> por el recruiter — puedes avanzar el proceso.
-    </div>` : ''}
+      ✓ Candidato <strong>aprobado</strong> — puedes avanzar el proceso.
+    </div>`}
     <label>Estado pipeline</label>
     <select id="u-est" ${isRejected?'disabled':''}>
       ${stagesAllowed.map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}
@@ -810,7 +919,7 @@ function sourcerForm(c,salOk){
     <label>Feedback / Notas</label><textarea id="u-fb">${c.fb||''}</textarea>
     <div style="display:flex;gap:6px;flex-direction:column">
       ${!isRejected?`<button class="btn btn-p btn-sm" style="justify-content:center" onclick="saveUpdate(${c.id},'sourcer')">Guardar cambios</button>`:''}
-      ${c.sit==='Por revisar'?`<button class="btn btn-amber btn-sm" style="justify-content:center" onclick="openEmailModal(${c.id})">📧 Notificar al Recruiter</button>`:''}
+      ${isPorContactar?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--p);color:var(--p2)" onclick="marcarContactado(${c.id})">📬 Marcar como Contactado</button>`:''}
     </div>
   </div></div>`;
 }
@@ -877,11 +986,12 @@ async function saveUpdate(id, role) {
     changes.sit = document.getElementById('u-sit').value;
     changes.fb  = document.getElementById('u-fb').value;
   } else if(role==='sourcer'){
-    if(isBlank || (!c.sit || c.sit === '')){
+    const sitNorm = normalizeSit(c.sit);
+    if(!c.sit || c.sit === ''){
       toast('Pendiente de revisión','El recruiter aún no ha dado el visto bueno','wrn','⏳');
       return;
     }
-    if(c.sit === 'Rechazado'){
+    if(sitNorm === 'Rechazado'){
       toast('Sin permisos','El recruiter rechazó este candidato — no puede avanzar','err','✕');
       return;
     }
@@ -948,6 +1058,7 @@ function afterEdit(id,prev,newEst){
   if(document.getElementById('v-pipeline').style.display==='flex') renderPipeline();
   if(document.getElementById('v-kanban').style.display==='flex') renderKanban();
   if(document.getElementById('v-review')?.style.display==='flex') renderReview();
+  if(document.getElementById('v-contactar')?.style.display==='flex') renderContactar();
   openPanel(id);
 }
 
@@ -1150,16 +1261,23 @@ function renderStale(){
 function getTodayCands(){
   const all = cands.filter(c=>canSeeCandidate(c));
   const result = [];
+
+  // Por contactar: sourcers/owners ven los que tienen pendiente de contactar
+  if(HAT==='sourcer'||HAT==='owner'||HAT==='supervisor'){
+    all.filter(c=>c.est==='Por contactar'&&normalizeSit(c.sit)==='Aprobado'&&!DISC_S.has(c.est))
+      .forEach(c=>result.push({c, reason:'Por contactar — aprobado por recruiter'}));
+  }
   // Pendientes de revisión (recruiter/owner)
   if(HAT==='recruiter'||HAT==='owner'||HAT==='supervisor'){
-    all.filter(c=>(!c.sit||c.sit==='')&&!DISC_S.has(c.est)).forEach(c=>result.push({c,reason:'Pendiente de revisión'}));
+    all.filter(c=>(!c.sit||c.sit==='')&&!DISC_S.has(c.est))
+      .forEach(c=>{ if(!result.find(r=>r.c.id===c.id)) result.push({c,reason:'Pendiente de revisión'}); });
   }
   // Estancados propios
   all.filter(c=>isStale(c)).forEach(c=>{
     if(!result.find(r=>r.c.id===c.id)) result.push({c,reason:`Estancado — ${daysInStage(c)}d en ${c.est}`});
   });
   // En pipeline activo sin feedback
-  all.filter(c=>isActiveInPipeline(c)&&!c.fb&&!DISC_S.has(c.est)).forEach(c=>{
+  all.filter(c=>isActiveInPipeline(c)&&!c.fb&&!DISC_S.has(c.est)&&c.est!=='Por contactar').forEach(c=>{
     if(!result.find(r=>r.c.id===c.id)) result.push({c,reason:'Sin feedback registrado'});
   });
   return result;
@@ -1191,8 +1309,8 @@ function renderToday(){
   const groups = {};
   items.forEach(({c,reason})=>{ const key=reason.split('—')[0].trim(); if(!groups[key])groups[key]=[]; groups[key].push({c,reason}); });
 
-  const icons  = {'Pendiente de revisión':'⏳','Estancado':'⚠','Sin feedback registrado':'💬'};
-  const colors = {'Pendiente de revisión':'var(--p2)','Estancado':'var(--amber)','Sin feedback registrado':'var(--txt2)'};
+  const icons  = {'Por contactar — aprobado por recruiter':'📬','Pendiente de revisión':'⏳','Estancado':'⚠','Sin feedback registrado':'💬'};
+  const colors = {'Por contactar — aprobado por recruiter':'var(--p2)','Pendiente de revisión':'var(--p2)','Estancado':'var(--amber)','Sin feedback registrado':'var(--txt2)'};
 
   // Tarjetas de categoría clickeables en el resumen
   const filterTabs = Object.entries(groups).map(([key, list])=>`
