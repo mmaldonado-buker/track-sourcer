@@ -122,6 +122,7 @@ tbody td{padding:9px 12px;vertical-align:middle}
 .ba{background:var(--gbg);color:var(--green)}
 .br{background:var(--rbg);color:var(--red)}
 .bpr{background:var(--abg);color:var(--amber)}
+.bpool{background:var(--bg4);color:var(--txt3);border:1px solid var(--border2)}
 .bpc{background:var(--pbg);color:var(--p2);border:1px solid var(--pborder)}
 .bco{background:var(--bbg);color:var(--blue)}
 .bref{background:#5b9cf015;color:var(--blue);border:1px solid var(--bborder)}
