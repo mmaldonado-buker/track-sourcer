@@ -121,7 +121,11 @@ tbody td{padding:9px 12px;vertical-align:middle}
 .badge{display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:2px 7px;border-radius:12px;white-space:nowrap}
 .ba{background:var(--gbg);color:var(--green)}
 .br{background:var(--rbg);color:var(--red)}
-.bpr{background:var(--abg);color:var(--amber)}
+/* Por revisar legacy — verde pálido, estado válido */
+.brev{background:rgba(45,212,160,.08);color:#5ecea0;border:1px solid rgba(45,212,160,.2)}
+/* Por validar — naranja, pendiente de validación humana */
+.bval{background:var(--abg);color:var(--amber);border:1px solid var(--aborder)}
+.bpr{background:var(--abg);color:var(--amber)} /* compat legacy */
 .bpool{background:var(--bg4);color:var(--txt3);border:1px solid var(--border2)}
 .bpc{background:var(--pbg);color:var(--p2);border:1px solid var(--pborder)}
 .bco{background:var(--bbg);color:var(--blue)}
