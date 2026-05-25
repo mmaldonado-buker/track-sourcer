@@ -406,16 +406,26 @@ const HIRED_S  = new Set(['Contratado']);
 // El pipeline empieza desde "Por contactar" una vez aprobado
 const PIPELINE_STAGES = new Set(['Por contactar','Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias']);
 
-// ─── COMPATIBILIDAD BD ───────────────────────────────────────
-// "Entrevista Inicial" legacy → "Entrevista TR"
-// "Entrevista EM" se mantiene igual
+// ─── NORMALIZACIÓN DE SITUACIÓN ─────────────────────────────
+// 'Por revisar'  → estado legacy del pool, se trata como Aprobado
+// 'Por validar'  → nuevo estado: subido desde la app, esperando validación humana
+// ''  / null     → sin decisión (igual que Por validar)
+function normalizeSit(sit) {
+  if (sit === 'Por revisar') return 'Aprobado';  // legacy válido
+  if (!sit || sit === '')    return 'Por validar'; // pendiente
+  return sit; // 'Aprobado' | 'Rechazado' | 'Por validar'
+}
+
+// Indica si un candidato está pendiente de validación humana
+function isPendingValidation(c) {
+  return !c.sit || c.sit === '' || c.sit === 'Por validar';
+}
+// ─────────────────────────────────────────────────────────────
+
+// ─── COMPATIBILIDAD ETAPAS ───────────────────────────────────
 function normalizeEst(est) {
   if (est === 'Entrevista Inicial') return 'Entrevista TR';
   return est;
-}
-function normalizeSit(sit) {
-  if (!sit || sit === '' || sit === 'Por revisar') return 'Aprobado';
-  return sit;
 }
 // ─────────────────────────────────────────────────────────────
 
@@ -425,12 +435,15 @@ function normalizeSit(sit) {
 // - O ya avanzó a Contactado o más adelante
 function isActiveInPipeline(c) {
   const est = normalizeEst(c.est);
-  if (est === 'En pool') return false;           // etapa cero, nunca en pipeline
+  if (est === 'En pool') return false;           // etapa cero
   if (DISC_S.has(est)) return false;
   if (HIRED_S.has(est)) return false;
   if (c.sit === 'Rechazado') return false;
-  // 'Por contactar' solo entra al pipeline si ya fue aprobado
-  if (est === 'Por contactar') return c.sit === 'Aprobado';
+  if (isPendingValidation(c)) return false;      // Por validar: no entra al pipeline
+  // 'Por contactar' solo con aprobación real (Aprobado o Por revisar legacy)
+  if (est === 'Por contactar') {
+    return c.sit === 'Aprobado' || c.sit === 'Por revisar';
+  }
   return new Set(['Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias']).has(est);
 }
 
@@ -549,7 +562,7 @@ function buildSidebar(){
 
   // Contador: candidatos sin situación (pendientes de decisión del recruiter)
   const nbr = document.getElementById('nb-review');
-  if(nbr) nbr.textContent = cands.filter(c => canSeeCandidate(c) && (!c.sit || c.sit === '') && !DISC_S.has(c.est)).length;
+  if(nbr) nbr.textContent = cands.filter(c => canSeeCandidate(c) && isPendingValidation(c) && !DISC_S.has(c.est)).length;
 
   // Por contactar: solo para sourcers y owners (no recruiters)
   const btnContactar = document.getElementById('ni-contactar');
@@ -729,7 +742,7 @@ function nav(view, poolId){
   }
 }
 
-function sitB(s){ const m={Aprobado:'ba',Rechazado:'br','Por revisar':'bpr'}; return `<span class="badge ${m[s]||''}">${s||'—'}</span>`; }
+function sitB(s){ const m={'Aprobado':'ba','Rechazado':'br','Por revisar':'brev','Por validar':'bval'}; return `<span class="badge ${m[s]||''}">${s||'—'}</span>`; }
 function estB(e){
   const m={
     'En pool':'bpool',
@@ -883,14 +896,13 @@ function renderKanban(){
 }
 
 function getReviewCands(){
-  // Pendientes de decisión del recruiter:
-  // - est='En pool' (recién agregados, nadie los ha tocado)
-  // - sit='' (sin aprobación ni rechazo)
+  // Solo candidatos con sit='Por validar' — subidos desde la app, esperando validación
+  // Excluye 'Por revisar' (legacy válido) y descartados/rechazados
   return cands.filter(c =>
     canSeeCandidate(c) &&
-    (!c.sit || c.sit === '') &&
+    isPendingValidation(c) &&
     !DISC_S.has(c.est) &&
-    c.est !== 'Rechazado'
+    c.sit !== 'Rechazado'
   );
 }
 
@@ -957,9 +969,9 @@ function renderReview(){
     </div>`;
   };
 
-  const titleSourcer = `⏳ Pendientes de revisión <span class="nb">${pending.length}</span>
-    <span style="font-size:10px;font-weight:400;color:var(--txt3);margin-left:8px">Notifica al recruiter para que revise tus candidatos</span>`;
-  const titleRecruiter = `⏳ Pendientes de revisión <span class="nb">${pending.length}</span>`;
+  const titleSourcer   = `⏳ Pendientes por validar <span class="nb">${pending.length}</span>
+    <span style="font-size:10px;font-weight:400;color:var(--txt3);margin-left:8px">Notifica al recruiter para que valide tus candidatos</span>`;
+  const titleRecruiter = `⏳ Pendientes por validar <span class="nb">${pending.length}</span>`;
 
   rb.innerHTML = `
     <div class="mg" style="margin-bottom:16px">
@@ -983,8 +995,9 @@ function renderReview(){
 // VISTA POR CONTACTAR
 // =====================================
 function getContactarCands(){
-  // Solo aparecen aquí si el recruiter YA aprobó (sit='Aprobado')
-  // Y el sourcer todavía no los ha contactado (est='Por contactar')
+  // Solo aparecen aquí si el recruiter EXPLÍCITAMENTE aprobó (sit='Aprobado')
+  // y el sourcer todavía no contactó (est='Por contactar')
+  // 'Por revisar' legacy NO aparece aquí — ya está en el pool como válido
   return cands.filter(c =>
     canSeeCandidate(c) &&
     c.est === 'Por contactar' &&
@@ -1072,8 +1085,7 @@ async function reviewAction(id, action){
   const changes = { fb };
 
   if(action === 'approve') {
-    changes.sit = 'Aprobado';
-    // Mover de 'En pool' a 'Por contactar' — el sourcer ahora puede contactarlo
+    changes.sit = 'Aprobado'; // reemplaza 'Por validar' con decisión explícita
     if(c.est === 'En pool' || !c.est) {
       changes.est = 'Por contactar';
       const newDates = {...(c.dates||{})};
@@ -1083,7 +1095,6 @@ async function reviewAction(id, action){
   }
   else if(action === 'reject') {
     changes.sit = 'Rechazado';
-    // Queda en 'En pool' como historial — no avanza
   }
 
   Object.assign(c, changes);
@@ -1222,7 +1233,7 @@ function sourcerForm(c,salOk){
   const isApproved     = c.sit === 'Aprobado';
   const isEnPool       = c.est === 'En pool';
   const isPorContactar = c.est === 'Por contactar';
-  const isPending      = isUndecided; // sin decisión del recruiter
+  const isPending      = isPendingValidation(c); // Por validar o sin sit
   const isReadyToCall  = isApproved && isPorContactar;
   const stagesAllowed  = (isRejected || isPending) ? [c.est] : [...STAGES,'Descartado'];
 
@@ -1463,9 +1474,9 @@ async function saveCand(){
     pid, n, l:document.getElementById('f-l').value.trim(),
     s:document.getElementById('f-se').value, stack:st,
     emp:document.getElementById('f-em').value.trim(),
-    // est='En pool' → recién ingresado, nadie ha hecho nada con él
-    // sit=''        → sin decisión del recruiter
-    sit:'', est:'En pool', mo:'',
+    // sit='Por validar' → subido desde la app, esperando validación del recruiter
+    // est='En pool'     → recién ingresado al sistema
+    sit:'Por validar', est:'En pool', mo:'',
     src:document.getElementById('f-so').value.trim()||CU.name,
     rec:document.getElementById('f-rc').value.trim(), fb:'',
     eq:document.getElementById('f-eq').value.trim(),
