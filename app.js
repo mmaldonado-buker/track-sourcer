@@ -392,17 +392,18 @@ const DEFAULT_POOLS = [
 ];
 
 const DEFAULT_THRESHOLDS = {
-  'Por contactar':5, 'Contactado':7, 'Screening':7,
+  'En pool':7, 'Por contactar':5, 'Contactado':7, 'Screening':7,
   'Entrevista TR':10, 'Entrevista EM':10,
   'Misión':14, 'Referencias':7
 };
 
-const STAGES   = ['Por contactar','Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias','Contratado'];
+const STAGES   = ['En pool','Por contactar','Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias','Contratado'];
 const DISC_S   = new Set(['Descartado','No interesado']);
 const SCREEN_S = new Set(['Screening','Entrevista TR','Entrevista EM','Misión','Referencias','Contratado']);
-const HIRED_S  = new Set(['Contratado']); // etapas que cuentan como contratado
+const HIRED_S  = new Set(['Contratado']);
 
-// Etapas que aparecen en el Pipeline Activo (excluye los extremos)
+// "En pool" nunca entra al pipeline — es la etapa cero, solo visible en Revisión
+// El pipeline empieza desde "Por contactar" una vez aprobado
 const PIPELINE_STAGES = new Set(['Por contactar','Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias']);
 
 // ─── COMPATIBILIDAD BD ───────────────────────────────────────
@@ -424,12 +425,12 @@ function normalizeSit(sit) {
 // - O ya avanzó a Contactado o más adelante
 function isActiveInPipeline(c) {
   const est = normalizeEst(c.est);
+  if (est === 'En pool') return false;           // etapa cero, nunca en pipeline
   if (DISC_S.has(est)) return false;
   if (HIRED_S.has(est)) return false;
   if (c.sit === 'Rechazado') return false;
-  // 'Por contactar' solo entra al pipeline si ya fue aprobado por el recruiter
+  // 'Por contactar' solo entra al pipeline si ya fue aprobado
   if (est === 'Por contactar') return c.sit === 'Aprobado';
-  // El resto de etapas activas entran directamente
   return new Set(['Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias']).has(est);
 }
 
@@ -731,11 +732,11 @@ function nav(view, poolId){
 function sitB(s){ const m={Aprobado:'ba',Rechazado:'br','Por revisar':'bpr'}; return `<span class="badge ${m[s]||''}">${s||'—'}</span>`; }
 function estB(e){
   const m={
+    'En pool':'bpool',
     'Por contactar':'bpc', 'Contactado':'bco', 'Screening':'bsc',
     'Entrevista TR':'bei', 'Entrevista EM':'bem',
     'Misión':'bmi', 'Referencias':'bref', 'Contratado':'bhired',
     'Descartado':'bde', 'No interesado':'bde',
-    // legacy compat
     'Entrevista Inicial':'bei'
   };
   return `<span class="badge ${m[e]||''}">${e||'—'}</span>`;
@@ -882,10 +883,9 @@ function renderKanban(){
 }
 
 function getReviewCands(){
-  // Candidatos pendientes de decisión del recruiter:
-  // - sit vacío (sin decisión aún)
-  // - est = 'Por contactar' (recién agregados, nadie los ha tocado)
-  // Excluye descartados y rechazados
+  // Pendientes de decisión del recruiter:
+  // - est='En pool' (recién agregados, nadie los ha tocado)
+  // - sit='' (sin aprobación ni rechazo)
   return cands.filter(c =>
     canSeeCandidate(c) &&
     (!c.sit || c.sit === '') &&
@@ -1073,19 +1073,17 @@ async function reviewAction(id, action){
 
   if(action === 'approve') {
     changes.sit = 'Aprobado';
-    // Asegurarse que est quede en 'Por contactar' independiente de lo que tenía
-    // El sourcer es quien después lo mueve a 'Contactado' manualmente
-    if(c.est !== 'Por contactar') {
+    // Mover de 'En pool' a 'Por contactar' — el sourcer ahora puede contactarlo
+    if(c.est === 'En pool' || !c.est) {
       changes.est = 'Por contactar';
       const newDates = {...(c.dates||{})};
       if(!newDates['Por contactar']) newDates['Por contactar'] = todayCL();
       changes.dates = newDates;
     }
-    // sit='Aprobado' + est='Por contactar' → aparece en vista "Por contactar" del sourcer
   }
   else if(action === 'reject') {
     changes.sit = 'Rechazado';
-    // Rechazado queda en el pool como historial, no en pipeline
+    // Queda en 'En pool' como historial — no avanza
   }
 
   Object.assign(c, changes);
@@ -1222,21 +1220,20 @@ function sourcerForm(c,salOk){
   const isUndecided    = !c.sit || c.sit === '';
   const isRejected     = c.sit === 'Rechazado';
   const isApproved     = c.sit === 'Aprobado';
+  const isEnPool       = c.est === 'En pool';
   const isPorContactar = c.est === 'Por contactar';
-  // Pendiente = sin decisión del recruiter (sit vacío), sin importar el est
-  const isPending      = isUndecided;
-  // Listo para contactar = aprobado Y en "Por contactar"
+  const isPending      = isUndecided; // sin decisión del recruiter
   const isReadyToCall  = isApproved && isPorContactar;
-  const stagesAllowed  = isRejected ? [c.est] : [...STAGES,'Descartado'];
+  const stagesAllowed  = (isRejected || isPending) ? [c.est] : [...STAGES,'Descartado'];
 
   return `<div class="psec"><div class="pst">Actualizar (Sourcer)</div><div class="uf">
-    ${isPending ? `
+    ${isEnPool && isPending ? `
     <div style="font-size:11px;color:var(--txt3);padding:9px 11px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2);margin-bottom:8px">
-      ⏳ <strong>Pendiente de revisión</strong> — el recruiter aún no ha aprobado ni rechazado este perfil.
-      ${isPorContactar ? '<br><span style="font-size:10px;color:var(--txt3)">Puedes notificarle para que lo revise.</span>' : ''}
+      ⏳ <strong>En revisión</strong> — esperando que el recruiter apruebe o rechace este perfil.
+      <br><span style="font-size:10px">Puedes notificarle para que lo revise más rápido.</span>
     </div>` : isRejected ? `
     <div style="font-size:11px;color:var(--red);padding:9px 11px;background:rgba(224,92,92,.08);border-radius:var(--r);border-left:2px solid var(--red);margin-bottom:8px">
-      ✕ Candidato <strong>rechazado</strong> por el recruiter — no puede avanzar en el proceso.
+      ✕ Candidato <strong>rechazado</strong> por el recruiter.
     </div>` : isReadyToCall ? `
     <div style="font-size:11px;color:var(--p2);padding:9px 11px;background:var(--pbg);border-radius:var(--r);border-left:2px solid var(--p);margin-bottom:8px">
       📬 <strong>Aprobado — listo para contactar.</strong> Una vez que lo contactes, márcalo como Contactado.
@@ -1245,10 +1242,10 @@ function sourcerForm(c,salOk){
       ✓ Candidato <strong>aprobado</strong> — en proceso activo.
     </div>`}
     <label>Estado pipeline</label>
-    <select id="u-est" ${isRejected||isPending?'disabled':''}>
+    <select id="u-est" ${(isRejected||isPending)?'disabled':''}>
       ${stagesAllowed.map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}
     </select>
-    ${isPending ? `<div style="font-size:10px;color:var(--txt3);margin-top:-4px;margin-bottom:8px">El estado solo se puede cambiar una vez que el recruiter apruebe el perfil.</div>` : ''}
+    ${isPending?`<div style="font-size:10px;color:var(--txt3);margin-top:-4px;margin-bottom:8px">El estado cambia cuando el recruiter apruebe el perfil.</div>`:''}
     <label>Equipo sugerido</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
@@ -1257,9 +1254,9 @@ function sourcerForm(c,salOk){
     <label>Link CV <span style="color:var(--txt3);font-weight:400">(Google Drive)</span></label>
     <input type="url" id="u-cv" value="${c.cv||''}" placeholder="https://drive.google.com/file/d/...">
     <div style="display:flex;gap:6px;flex-direction:column">
-      ${!isRejected?`<button class="btn btn-p btn-sm" style="justify-content:center" onclick="saveUpdate(${c.id},'sourcer')">Guardar cambios</button>`:''}
+      <button class="btn btn-p btn-sm" style="justify-content:center" onclick="saveUpdate(${c.id},'sourcer')">Guardar notas / CV</button>
       ${isReadyToCall?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--p);color:var(--p2)" onclick="marcarContactado(${c.id})">📬 Marcar como Contactado</button>`:''}
-      ${isPending&&isPorContactar?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="sendNotifToRecruiter(${c.id})" id="notif-btn-${c.id}">🔔 Notificar al recruiter</button>`:''}
+      ${isPending?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="sendNotifToRecruiter(${c.id})" id="notif-btn-${c.id}">🔔 Notificar al recruiter</button>`:''}
     </div>
   </div></div>`;
 }
@@ -1466,15 +1463,15 @@ async function saveCand(){
     pid, n, l:document.getElementById('f-l').value.trim(),
     s:document.getElementById('f-se').value, stack:st,
     emp:document.getElementById('f-em').value.trim(),
-    // sit='' → sin decisión, pendiente de revisión por recruiter
-    // est='Por contactar' → etapa inicial, antes de cualquier acción
-    sit:'', est:'Por contactar', mo:'',
+    // est='En pool' → recién ingresado, nadie ha hecho nada con él
+    // sit=''        → sin decisión del recruiter
+    sit:'', est:'En pool', mo:'',
     src:document.getElementById('f-so').value.trim()||CU.name,
     rec:document.getElementById('f-rc').value.trim(), fb:'',
     eq:document.getElementById('f-eq').value.trim(),
     cv:document.getElementById('f-cv')?.value.trim()||'',
     sal:'', dt:today,
-    dates:{'Por contactar':today}
+    dates:{'En pool':today}
   };
 
   setSyncStatus('loading');
