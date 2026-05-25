@@ -95,7 +95,8 @@ function localFallback(action, payload) {
   }
   if (action === 'deleteCandidate') {
     const stored = JSON.parse(localStorage.getItem('st4_cands') || '[]');
-    const filtered = stored.filter(c => c.id !== payload.id);
+    // Coerción de tipo: comparar ambos como número para evitar "1" !== 1
+    const filtered = stored.filter(c => Number(c.id) !== Number(payload.id));
     localStorage.setItem('st4_cands', JSON.stringify(filtered));
     return { ok: true };
   }
@@ -1409,34 +1410,35 @@ async function discardC(id){
 
 // Elimina el candidato completamente — disponible para todos los roles
 async function deleteCandidate(id){
-  const c = cands.find(x=>x.id===id);
-  if(!c) return;
+  const numId = Number(id);
+  const c = cands.find(x=>Number(x.id)===numId);
+  if(!c){ toast('Candidato no encontrado','','err','⚠'); return; }
   if(!confirm(`¿Eliminar permanentemente a ${c.n}?\n\nEsta acción no se puede deshacer.`)) return;
 
-  setSyncStatus('loading');
-  try {
-    await apiCall('deleteCandidate', { id, deletedBy: CU.name });
-    setSyncStatus('ok');
-  } catch(err) {
-    setSyncStatus('error','⚠ Guardado local');
-  }
-
-  // Eliminar del array local
-  const idx = cands.findIndex(x=>x.id===id);
+  // 1. Eliminar del array en memoria PRIMERO (no espera la BD)
+  const idx = cands.findIndex(x=>Number(x.id)===numId);
   if(idx !== -1) cands.splice(idx, 1);
 
-  // Guardar caché local
+  // 2. Actualizar localStorage inmediatamente
   localStorage.setItem('st4_cands', JSON.stringify(cands));
 
+  // 3. UI actualiza ANTES de esperar la BD
   closePanel();
   buildSidebar();
   if(document.getElementById('v-pool')?.style.display==='flex') renderPool();
   if(document.getElementById('v-pipeline')?.style.display==='flex') renderPipeline();
   if(document.getElementById('v-review')?.style.display==='flex') renderReview();
   if(document.getElementById('v-contactar')?.style.display==='flex') renderContactar();
+  if(document.getElementById('v-metrics')?.style.display==='flex') renderMetrics();
   toast(`${c.n} eliminado`, 'Candidato borrado permanentemente', 'wrn', '🗑');
-}
 
+  // 4. Sincronizar con Sheet en segundo plano
+  try {
+    await apiCall('deleteCandidate', { id: numId, deletedBy: CU.name });
+  } catch(err) {
+    console.warn('deleteCandidate BD error:', err.message);
+  }
+}
 function afterEdit(id,prev,newEst){
   buildSidebar();
   if(DISC_S.has(newEst)&&!DISC_S.has(prev)) toast(`${cands.find(x=>x.id===id)?.n} descartado`,'Regresó al historial','wrn','↩');
