@@ -438,8 +438,31 @@ let currentPool = null, pipeStageF = '';
 let thresholds = {}, emailMap = {};
 let selUserId = null;
 
+// ── Fecha y hora en zona horaria de Chile ───────────────────
+// Siempre usa America/Santiago independiente del computador del usuario.
+// Devuelve 'YYYY-MM-DD' para guardar en la BD.
+function todayCL() {
+  return new Date().toLocaleDateString('es-CL', {
+    timeZone: 'America/Santiago',
+    year:  'numeric',
+    month: '2-digit',
+    day:   '2-digit',
+  }).split('-').reverse().join('-');
+  // toLocaleDateString en es-CL devuelve DD-MM-YYYY, reverse() lo convierte a YYYY-MM-DD
+}
+
+// Versión con hora incluida, para logs y notificaciones
+function nowCL() {
+  return new Date().toLocaleString('es-CL', {
+    timeZone: 'America/Santiago',
+    year:   'numeric', month:  '2-digit', day:    '2-digit',
+    hour:   '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
+}
+// ────────────────────────────────────────────────────────────
+
 function loadLocalConfig() {
-  const st = localStorage.getItem('st4_thresh');
   thresholds = st ? JSON.parse(st) : {...DEFAULT_THRESHOLDS};
   USERS.forEach(u => { emailMap[u.name] = u.email; });
   API_KEY = localStorage.getItem('st4_key') || '';
@@ -455,8 +478,24 @@ function saveLocal() { localStorage.setItem('st4_thresh', JSON.stringify(thresho
 
 function daysSince(dateStr){ if(!dateStr) return null; return Math.floor((new Date()-new Date(dateStr))/(86400000)); }
 function daysInStage(c){ return daysSince(c.dates?.[c.est]); }
-function isStale(c){ if(DISC_S.has(c.est)) return false; const d=daysInStage(c); return d!==null && d>=(thresholds[c.est]||10); }
-function fmtDate(d){ if(!d) return '—'; return new Date(d).toLocaleDateString('es-CL',{day:'numeric',month:'short'}); }
+// ── Control de detección de estancados ──────────────────────
+// Desactivado por defecto hasta que las fechas en la BD sean confiables.
+// Se activa desde Configuración cuando el equipo esté listo.
+let STALE_DETECTION_ENABLED = localStorage.getItem('st4_stale_enabled') === 'true';
+
+function isStale(c){
+  if (!STALE_DETECTION_ENABLED) return false; // pausado globalmente
+  if(DISC_S.has(c.est)) return false;
+  const d=daysInStage(c);
+  return d!==null && d>=(thresholds[c.est]||10);
+}
+function fmtDate(d){
+  if(!d) return '—';
+  // Parsear como fecha local (sin hora) para evitar desfase de zona horaria
+  const [y, m, day] = d.split('-').map(Number);
+  const date = new Date(y, m - 1, day);
+  return date.toLocaleDateString('es-CL', { day:'numeric', month:'short' });
+}
 function daysLabel(n,thresh){ if(n===null) return '—'; const cls=n>=thresh?(n>=thresh*1.5?'danger':'warn'):'ok'; return `<span class="tl-days ${cls}">${n}d</span>`; }
 function getStaleCands(){ return cands.filter(c=>!DISC_S.has(c.est)&&isStale(c)&&canSeeCandidate(c)); }
 function updateStaleSidebar(){
@@ -947,7 +986,7 @@ function renderContactar(){
   cb.innerHTML = `
     <div class="mg" style="margin-bottom:16px">
       <div class="mc"><div class="mcl" style="color:var(--p2)">Por contactar</div><div class="mcv mv-p">${pending.length}</div><div class="mcs">aprobados listos</div></div>
-      <div class="mc"><div class="mcl">Hoy</div><div class="mcv mv-g">${pending.filter(c=>c.dates?.['Por contactar']===new Date().toISOString().slice(0,10)).length}</div><div class="mcs">aprobados hoy</div></div>
+      <div class="mc"><div class="mcl">Hoy</div><div class="mcv mv-g">${pending.filter(c=>c.dates?.['Por contactar']===todayCL()).length}</div><div class="mcs">aprobados hoy</div></div>
     </div>
     <div class="rev-section">
       <div class="rev-sec-title" style="color:var(--p2)">📬 Listos para contactar <span class="nb live">${pending.length}</span></div>
@@ -980,7 +1019,7 @@ function renderContactar(){
 
 async function marcarContactado(id){
   const c = cands.find(x=>x.id===id); if(!c) return;
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayCL();
   const changes = {
     est: 'Contactado',
     dates: {...(c.dates||{}), Contactado: today}
@@ -1009,7 +1048,7 @@ async function reviewAction(id, action){
     if (!c.est || c.est === 'Contactado' || c.est === '') {
       changes.est = 'Por contactar';
       const newDates = {...(c.dates||{})};
-      if(!newDates['Por contactar']) newDates['Por contactar'] = new Date().toISOString().slice(0,10);
+      if(!newDates['Por contactar']) newDates['Por contactar'] = todayCL();
       changes.dates = newDates;
     }
   }
@@ -1056,7 +1095,11 @@ function openPanel(id){
       </div>
       <button class="pc" onclick="closePanel()">✕</button>
     </div>
-    ${c.l?`<a href="${c.l}" target="_blank" class="tdl" style="font-size:12px;margin-bottom:12px;display:inline-flex">↗ Ver en LinkedIn</a>`:''}
+    ${c.l || c.cv ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${c.l ? `<a href="${c.l}" target="_blank" class="btn btn-sm btn-ghost" style="font-size:11px;text-decoration:none">↗ LinkedIn</a>` : ''}
+      ${c.cv ? `<a href="${c.cv}" target="_blank" class="btn btn-sm" style="font-size:11px;text-decoration:none;background:var(--gbg);border-color:var(--gborder);color:var(--green)">📄 Ver CV</a>` : ''}
+    </div>` : ''}
     ${stale?`<div style="background:var(--abg);border:1px solid var(--aborder);border-radius:var(--r);padding:8px 11px;margin-bottom:12px;font-size:12px;color:var(--amber)">⚠ <strong>Candidato estancado</strong> — ${daysInStage(c)} días en ${c.est} (umbral: ${thresholds[c.est]||10}d)<br><button class="btn btn-amber btn-sm" style="margin-top:6px" onclick="openEmailModal(${c.id})">📧 Generar notificación</button></div>`:''}
     <div class="psec"><div class="pst">Pipeline</div>${pSteps(c)}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${sitB(c.sit)} ${estB(c.est)}${c.mo?` <span class="badge" style="background:var(--bg4);color:var(--txt3)">${c.mo}</span>`:''}</div></div>
     <div class="psec"><div class="pst">Historial de fechas</div>${timelineHTML}</div>
@@ -1067,6 +1110,10 @@ function openPanel(id){
       <div class="pr"><span class="prl">Salario</span><span style="font-size:11px">${c.sal||(salOk?'—':'<em style="color:var(--txt3);font-size:10px">Desde Screening</em>')}</span></div>
       <div class="pr"><span class="prl">Sourcer</span><span style="font-size:11px">${c.src||'—'}</span></div>
       <div class="pr"><span class="prl">Recruiter</span><span style="font-size:11px">${c.rec||'—'}</span></div>
+      <div class="pr"><span class="prl">CV</span><span style="font-size:11px">${c.cv
+        ? `<a href="${c.cv}" target="_blank" style="color:var(--green);text-decoration:none;display:inline-flex;align-items:center;gap:3px">📄 Ver CV en Drive ↗</a>`
+        : '<em style="color:var(--txt3)">Sin CV adjunto</em>'
+      }</span></div>
     </div>
     ${c.fb?`<div class="psec"><div class="pst">Feedback</div><div class="pfb">"${c.fb}"</div></div>`:''}
     ${editHTML}
@@ -1107,6 +1154,8 @@ function ownerForm(c,salOk,disc){
       <option value="Se bajó del proceso" ${c.mo === 'Se bajó del proceso' ? 'selected' : ''}>Se bajó del proceso</option>
     </select>
     <div id="ai-motivo-status" style="font-size:11px; margin-bottom:12px; margin-top:-6px;"></div>
+    <label>Link CV <span style="color:var(--txt3);font-weight:400">(Google Drive)</span></label>
+    <input type="url" id="u-cv" value="${c.cv||''}" placeholder="https://drive.google.com/file/d/...">
     <div style="display:flex;gap:6px">
       <button class="btn btn-p btn-sm" style="flex:1;justify-content:center" onclick="saveUpdate(${c.id},'owner')">Guardar</button>
       ${!disc?`<button class="btn btn-danger btn-sm" onclick="discardC(${c.id})">Descartar</button>`:''}
@@ -1163,6 +1212,8 @@ function sourcerForm(c,salOk){
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
     `<div class="ro">Rango salarial — desde Screening</div>`}
     <label>Feedback / Notas</label><textarea id="u-fb">${c.fb||''}</textarea>
+    <label>Link CV <span style="color:var(--txt3);font-weight:400">(Google Drive)</span></label>
+    <input type="url" id="u-cv" value="${c.cv||''}" placeholder="https://drive.google.com/file/d/...">
     <div style="display:flex;gap:6px;flex-direction:column">
       ${!isRejected?`<button class="btn btn-p btn-sm" style="justify-content:center" onclick="saveUpdate(${c.id},'sourcer')">Guardar cambios</button>`:''}
       ${isPorContactar?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--p);color:var(--p2)" onclick="marcarContactado(${c.id})">📬 Marcar como Contactado</button>`:''}
@@ -1245,18 +1296,19 @@ async function saveUpdate(id, role) {
     if(newEst) {
       changes.est = newEst;
       const newDates = {...(c.dates||{})};
-      if(!newDates[newEst]) newDates[newEst] = new Date().toISOString().slice(0,10);
+      if(!newDates[newEst]) newDates[newEst] = todayCL();
       changes.dates = newDates;
     }
     changes.eq  = document.getElementById('u-eq')?.value  || c.eq;
     changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
     const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
+    const cve = document.getElementById('u-cv'); if(cve) changes.cv = cve.value.trim();
   } else {
     const newEst = normalizeEst(document.getElementById('u-est')?.value || '');
     if(newEst) {
       changes.est = newEst;
       const newDates = {...(c.dates||{})};
-      if(!newDates[newEst]) newDates[newEst] = new Date().toISOString().slice(0,10);
+      if(!newDates[newEst]) newDates[newEst] = todayCL();
       changes.dates = newDates;
     }
     const po = document.getElementById('u-po');
@@ -1268,6 +1320,7 @@ async function saveUpdate(id, role) {
     changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
     if(role!=='sourcer') changes.mo = document.getElementById('u-mo')?.value || c.mo;
     const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
+    const cve = document.getElementById('u-cv'); if(cve) changes.cv = cve.value.trim();
   }
 
   Object.assign(c, changes);
@@ -1286,7 +1339,7 @@ async function discardC(id){
   const prev=c.est;
   const moValue = document.getElementById('u-mo')?.value || '';
   const changes = { 
-      est:'Descartado', mo: moValue, dates:{...(c.dates||{}), Descartado: new Date().toISOString().slice(0,10)} 
+      est:'Descartado', mo: moValue, dates:{...(c.dates||{}), Descartado: todayCL()} 
   };
   Object.assign(c, changes); c.dates = changes.dates;
   setSyncStatus('loading');
@@ -1313,7 +1366,7 @@ function openAddCand(){
   document.getElementById('f-rc').innerHTML=allRecruiters().map(r=>`<option>${r}</option>`).join('');
   document.getElementById('f-po').innerHTML=pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   document.getElementById('f-so').value=CU.name;
-  ['f-n','f-l','f-st','f-em','f-eq'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['f-n','f-l','f-st','f-em','f-eq','f-cv'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('f-se').value='';
   openModal('mb-cand');
 }
@@ -1327,7 +1380,7 @@ async function saveCand(){
   btn.disabled=true; btn.textContent='Guardando...';
 
   const pid=parseInt(document.getElementById('f-po').value)||pools[0]?.id;
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayCL();
   const nc={
     pid, n, l:document.getElementById('f-l').value.trim(),
     s:document.getElementById('f-se').value, stack:st,
@@ -1335,7 +1388,9 @@ async function saveCand(){
     sit:'', est:'Contactado', mo:'',
     src:document.getElementById('f-so').value.trim()||CU.name,
     rec:document.getElementById('f-rc').value, fb:'',
-    eq:document.getElementById('f-eq').value.trim(), sal:'', dt:today,
+    eq:document.getElementById('f-eq').value.trim(),
+    cv:document.getElementById('f-cv')?.value.trim()||'',
+    sal:'', dt:today,
     dates:{Contactado:today}
   };
 
@@ -1583,7 +1638,7 @@ function exportMetricsCSV() {
   const csv = csvRows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
-  a.download = `metricas_sourcing_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `metricas_sourcing_${todayCL()}.csv`;
   a.click();
   toast('CSV exportado', `${sourcers.length} sourcers · ${periods.length} períodos`, 'ok', '↓');
 }
@@ -1819,26 +1874,47 @@ function renderToday(){
         ${icons[key]||'•'} ${key} <span class="nb">${list.length}</span>
       </div>
       <div class="rev-list">
-        ${list.map(({c,reason})=>`
-        <div class="rev-card" onclick="openPanel(${c.id})" style="cursor:pointer">
-          <div class="rev-card-top">
-            <div style="flex:1;min-width:0">
-              <div class="rev-name">${c.n}</div>
-              <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
-              <div style="font-size:10px;color:${colors[key]||'var(--txt3)'};margin-top:3px">${reason}</div>
+        ${list.map(({c,reason})=>{
+          const isPorContactar = c.est === 'Por contactar';
+          return `
+          <div class="rev-card" onclick="openPanel(${c.id})" style="cursor:pointer">
+            <div class="rev-card-top">
+              <div style="flex:1;min-width:0">
+                <div class="rev-name">${c.n}</div>
+                <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
+                <div style="font-size:10px;color:${colors[key]||'var(--txt3)'};margin-top:3px">${reason}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+                ${estB(c.est)}
+                <span style="font-size:10px;color:var(--txt3)">${c.rec||c.src||'—'}</span>
+              </div>
             </div>
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
-              ${estB(c.est)}
-              <span style="font-size:10px;color:var(--txt3)">${c.rec||c.src||'—'}</span>
-            </div>
-          </div>
-        </div>`).join('')}
+            ${isPorContactar ? `
+            <div style="margin-top:8px" onclick="event.stopPropagation()">
+              <button class="btn btn-p btn-sm" style="width:100%;justify-content:center" onclick="marcarContactado(${c.id})">
+                📬 Marcar como Contactado
+              </button>
+            </div>` : ''}
+          </div>`;
+        }).join('')}
       </div>
     </div>`).join('')}
   `;
 }
 
 function renderConfig(){
+  // ── Toggle detección de estancados ──────────────────────
+  const staleToggleEl = document.getElementById('stale-toggle');
+  if (staleToggleEl) {
+    staleToggleEl.checked = STALE_DETECTION_ENABLED;
+    staleToggleEl.onchange = () => {
+      STALE_DETECTION_ENABLED = staleToggleEl.checked;
+      localStorage.setItem('st4_stale_enabled', STALE_DETECTION_ENABLED);
+      updateStaleSidebar();
+      const msg = STALE_DETECTION_ENABLED ? 'Detección de estancados activada' : 'Detección de estancados pausada';
+      toast(msg, '', STALE_DETECTION_ENABLED ? 'ok' : 'wrn', STALE_DETECTION_ENABLED ? '⚠' : '○');
+    };
+  }
   document.getElementById('threshold-rows').innerHTML=STAGES.map(s=>`
     <div class="threshold-row">
       <div><div style="font-size:13px;font-weight:500">${s}</div><div style="font-size:11px;color:var(--txt3)">Días sin actualización</div></div>
@@ -1891,7 +1967,7 @@ function exportCSV(){
   ].map(v=>`"${(v||'').replace(/"/g,'""')}"`));
   const csv=[h,...r].map(x=>x.join(',')).join('\n');
   const a=document.createElement('a'); a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
-  a.download=`sourcer_pool_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  a.download=`sourcer_pool_${todayCL()}.csv`; a.click();
   toast('CSV exportado',`${all.length} candidatos`,'ok','↓');
 }
 
