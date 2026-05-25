@@ -67,6 +67,32 @@ function localFallback(action, payload) {
     localStorage.setItem('st4_pools', JSON.stringify(pools_l));
     return { ok: true, id: newId };
   }
+  // Notificaciones en modo offline: guardar en localStorage
+  if (action === 'sendNotification') {
+    const notifs = JSON.parse(localStorage.getItem('st4_notifs') || '[]');
+    const newId  = notifs.length ? Math.max(...notifs.map(n=>n.id)) + 1 : 1;
+    notifs.push({ id: newId, ts: new Date().toISOString(), read: 'false', ...payload });
+    localStorage.setItem('st4_notifs', JSON.stringify(notifs));
+    return { ok: true, id: newId };
+  }
+  if (action === 'getNotifications') {
+    const notifs = JSON.parse(localStorage.getItem('st4_notifs') || '[]');
+    const toUser = payload?.to_user || '';
+    const since  = payload?.since   || '';
+    const result = notifs.filter(n =>
+      n.to_user === toUser &&
+      n.read !== 'true' &&
+      (!since || n.ts > since)
+    );
+    return { notifications: result };
+  }
+  if (action === 'markNotifRead') {
+    const notifs = JSON.parse(localStorage.getItem('st4_notifs') || '[]');
+    const ids = payload?.ids || [];
+    ids.forEach(id => { const n = notifs.find(x=>x.id===id); if(n) n.read='true'; });
+    localStorage.setItem('st4_notifs', JSON.stringify(notifs));
+    return { ok: true };
+  }
   return { ok: true };
 }
 
@@ -129,7 +155,7 @@ async function syncNow() {
     localStorage.setItem('st4_cands', JSON.stringify(cands));
     localStorage.setItem('st4_pools', JSON.stringify(pools));
     setSyncStatus('ok'); buildSidebar();
-    const views = ['pool','pipeline','kanban','analytics','review','stale','today','contactar'];
+    const views = ['pool','pipeline','kanban','analytics','review','stale','today','contactar','metrics'];
     views.forEach(v => {
       const el = document.getElementById('v-' + v);
       if (el && el.style.display !== 'none') {
@@ -139,6 +165,7 @@ async function syncNow() {
         if (v === 'analytics') renderAnalytics();
         if (v === 'review') renderReview();
         if (v === 'contactar') renderContactar();
+        if (v === 'metrics') renderMetrics();
       }
     });
     toast('Sincronizado', `${cands.length} candidatos · ${pools.length} pools`, 'ok', '↻');
@@ -152,6 +179,182 @@ function updateSheetsUrl() {
   if (url) {
     SHEETS_URL = url; localStorage.setItem('st4_sheets_url', url); IS_OFFLINE = false;
     toast('URL actualizada', 'Sincronizando...', 'ok', '↻'); syncNow();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// NOTIFICATION ENGINE
+// Completamente aislado: si falla, no afecta nada del resto.
+// ══════════════════════════════════════════════════════════════
+
+let _notifPollTimer = null;   // referencia al setInterval
+let _notifLastCheck = '';     // ISO timestamp del último poll exitoso
+let _notifAudioCtx  = null;   // AudioContext (lazy, se crea al primer uso)
+
+// ── Sonido ──────────────────────────────────────────────────
+// Tres pulsos cortos tipo messenger antiguo.
+// Si el browser bloquea AudioContext, falla silenciosamente.
+function playBuzz() {
+  try {
+    if (!_notifAudioCtx) {
+      _notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const ctx = _notifAudioCtx;
+    // Desbloquear contexto suspendido (política autoplay)
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const pulses = [
+      { freq: 880,  start: 0.00, dur: 0.07 },
+      { freq: 880,  start: 0.12, dur: 0.07 },
+      { freq: 1100, start: 0.24, dur: 0.15 },
+    ];
+    pulses.forEach(({ freq, start, dur }) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+      gain.gain.setValueAtTime(0,    ctx.currentTime + start);
+      gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + start + 0.01);
+      gain.gain.linearRampToValueAtTime(0,   ctx.currentTime + start + dur);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime  + start + dur + 0.02);
+    });
+  } catch(e) { /* AudioContext bloqueado — no pasa nada */ }
+}
+
+// ── Badge pulsante en el nav ─────────────────────────────────
+function showNotifBadge(count) {
+  let badge = document.getElementById('notif-ping-badge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.id = 'notif-ping-badge';
+    badge.className = 'notif-ping';
+    const niReview = document.getElementById('ni-review');
+    if (niReview) niReview.appendChild(badge);
+    else return; // nav item no existe todavía
+  }
+  badge.textContent = count > 9 ? '9+' : String(count);
+  badge.style.display = 'inline-flex';
+}
+
+function hideNotifBadge() {
+  const badge = document.getElementById('notif-ping-badge');
+  if (badge) badge.style.display = 'none';
+}
+
+// ── Marcar leídas en el Sheet ────────────────────────────────
+async function markNotifsRead(ids) {
+  if (!ids.length) return;
+  try {
+    await apiCall('markNotifRead', { ids });
+  } catch(e) { /* no crítico */ }
+}
+
+// ── Poll: busca notificaciones nuevas para el usuario actual ─
+async function pollNotifications() {
+  // Solo corre para recruiters y owners, nunca para sourcers ni viewers
+  if (!CU || IS_OFFLINE) return;
+  if (HAT !== 'recruiter' && HAT !== 'owner' && HAT !== 'supervisor') return;
+  // En modo offline usamos localFallback directamente
+  if (IS_OFFLINE) return;
+
+  try {
+    const safeUrl = getSafeUrl(SHEETS_URL);
+    const url = new URL(safeUrl);
+    url.searchParams.set('action', 'getNotifications');
+    url.searchParams.set('to_user', CU.name);
+    if (_notifLastCheck) url.searchParams.set('since', _notifLastCheck);
+
+    const resp = await fetch(url.toString());
+    if (!resp.ok) return; // falla silenciosamente
+    const data = await resp.json();
+    if (data.error) return;
+
+    _notifLastCheck = new Date().toISOString();
+
+    const notifs = data.notifications || [];
+    if (!notifs.length) return;
+
+    // Hay notificaciones nuevas → badge + sonido + toast
+    showNotifBadge(notifs.length);
+    playBuzz();
+    notifs.forEach(n => {
+      toast(
+        `🔔 ${n.from_user?.split(' ')[0] || 'Sourcer'} quiere tu revisión`,
+        n.message || `Candidato ${n.cand_name} pendiente`,
+        'inf',
+        '🔔'
+      );
+    });
+
+    // Refrescar contador del nav si la vista de revisión está activa
+    buildSidebar();
+
+    // Marcar como leídas para que no vuelvan a aparecer
+    await markNotifsRead(notifs.map(n => Number(n.id)));
+
+  } catch(e) { /* network error — no afecta nada */ }
+}
+
+// ── Arrancar / detener el polling ───────────────────────────
+function startNotifPolling() {
+  stopNotifPolling(); // limpiar timer previo si hubiera
+  _notifLastCheck = new Date().toISOString();
+  _notifPollTimer = setInterval(pollNotifications, 20000); // cada 20s
+}
+
+function stopNotifPolling() {
+  if (_notifPollTimer) { clearInterval(_notifPollTimer); _notifPollTimer = null; }
+}
+
+// ── Enviar notificación (llamado por el sourcer) ─────────────
+async function sendNotifToRecruiter(candId) {
+  const c = cands.find(x => x.id === candId);
+  if (!c) return;
+
+  // Buscar el recruiter asignado
+  const recruiterUser = USERS.find(u => u.name === c.rec);
+  if (!recruiterUser) {
+    toast('Sin recruiter asignado', `${c.n} no tiene recruiter — asígnalo primero`, 'wrn', '⚠');
+    return;
+  }
+
+  // Anti-spam: no permitir enviar dos notificaciones del mismo candidato en < 5 min
+  const lastSent = localStorage.getItem(`notif_sent_${candId}`);
+  if (lastSent) {
+    const minsSince = (Date.now() - new Date(lastSent)) / 60000;
+    if (minsSince < 5) {
+      toast('Ya notificado', `Espera ${Math.ceil(5 - minsSince)} min antes de volver a notificar`, 'wrn', '⏳');
+      return;
+    }
+  }
+
+  const btn = document.getElementById(`notif-btn-${candId}`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+
+  const payload = {
+    from_user:  CU.name,
+    to_user:    recruiterUser.name,
+    cand_id:    candId,
+    cand_name:  c.n,
+    message:    `${CU.name} solicita revisión de ${c.n} (${c.stack || '—'}, ${c.s || '?'}) — Pool: ${pname(c.pid)}`,
+  };
+
+  try {
+    await apiCall('sendNotification', payload);
+    localStorage.setItem(`notif_sent_${candId}`, new Date().toISOString());
+    toast('Notificación enviada', `${recruiterUser.name} recibirá un aviso`, 'ok', '🔔');
+    if (btn) {
+      btn.textContent = '✓ Enviado';
+      btn.style.color = 'var(--green)';
+      btn.style.borderColor = 'var(--gborder)';
+      btn.disabled = true;
+    }
+  } catch(err) {
+    toast('Error al notificar', err.message, 'err', '⚠');
+    if (btn) { btn.disabled = false; btn.textContent = '🔔 Notificar'; }
   }
 }
 
@@ -182,32 +385,43 @@ const DEFAULT_POOLS = [
   {id:3, name:'EM',   desc:'Engineering Managers por célula',        color:'#e06cc0'},
 ];
 
-const DEFAULT_THRESHOLDS = { 'Por contactar':5, 'Contactado':7, 'Screening':7, 'Entrevista Inicial':10, 'Entrevista EM':10, 'Misión':14 };
+const DEFAULT_THRESHOLDS = {
+  'Por contactar':5, 'Contactado':7, 'Screening':7,
+  'Entrevista TR':10, 'Entrevista EM':10,
+  'Misión':14, 'Referencias':7
+};
 
-// STAGES: flujo completo de un candidato
-// "Por contactar" = aprobado por recruiter, aún no contactado por sourcer
-const STAGES   = ['Por contactar','Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
+const STAGES   = ['Por contactar','Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias','Contratado'];
 const DISC_S   = new Set(['Descartado','No interesado']);
-const SCREEN_S = new Set(['Screening','Entrevista Inicial','Entrevista EM','Misión']);
+const SCREEN_S = new Set(['Screening','Entrevista TR','Entrevista EM','Misión','Referencias','Contratado']);
+const HIRED_S  = new Set(['Contratado']); // etapas que cuentan como contratado
 
-// ─── MAPEO DE COMPATIBILIDAD DE BASE DE DATOS ───────────────────────────────
-// Candidatos que en la BD vienen como "Por revisar" se tratan como Aprobados
-// (la BD actual usa "Por revisar" como estado intermedio legacy)
+// Etapas que aparecen en el Pipeline Activo (excluye los extremos)
+const PIPELINE_STAGES = new Set(['Por contactar','Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias']);
+
+// ─── COMPATIBILIDAD BD ───────────────────────────────────────
+// "Entrevista Inicial" legacy → "Entrevista TR"
+// "Entrevista EM" se mantiene igual
+function normalizeEst(est) {
+  if (est === 'Entrevista Inicial') return 'Entrevista TR';
+  return est;
+}
 function normalizeSit(sit) {
   if (!sit || sit === '' || sit === 'Por revisar') return 'Aprobado';
-  return sit; // 'Aprobado' | 'Rechazado'
+  return sit;
 }
-// ────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 
 // Un candidato está activo en pipeline si:
 // - No está descartado/rechazado
 // - Está en "Por contactar" (aprobado, esperando contacto del sourcer)
 // - O ya avanzó a Contactado o más adelante
 function isActiveInPipeline(c) {
-  if (DISC_S.has(c.est)) return false;
+  const est = normalizeEst(c.est);
+  if (DISC_S.has(est)) return false;
+  if (HIRED_S.has(est)) return false; // contratados van a su propia vista
   if (normalizeSit(c.sit) === 'Rechazado') return false;
-  const activeStages = ['Por contactar','Contactado','Screening','Entrevista Inicial','Entrevista EM','Misión'];
-  return activeStages.includes(c.est);
+  return PIPELINE_STAGES.has(est);
 }
 
 const today_d = new Date();
@@ -278,16 +492,24 @@ function buildSidebar(){
   const ppf=document.getElementById('pipe-pool-f');
   if(ppf) ppf.innerHTML='<option value="">Todos los pools</option>'+pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   updateStaleSidebar();
-  
+
+  // Revisión: visible para todos los roles
   const btnReview = document.getElementById('ni-review');
-  if (btnReview) btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
-  
-  // ARREGLO: El contador solo suma los "Por revisar" ignorando los descartados y rechazados
-  const nbr=document.getElementById('nb-review');
-  if(nbr) nbr.textContent=cands.filter(c => canSeeCandidate(c) && c.sit==='Por revisar' && !DISC_S.has(c.est)).length;
-  
+  if (btnReview) btnReview.style.display = 'flex';
+
+  // Contador: candidatos sin situación (pendientes de decisión del recruiter)
+  const nbr = document.getElementById('nb-review');
+  if(nbr) nbr.textContent = cands.filter(c => canSeeCandidate(c) && (!c.sit || c.sit === '') && !DISC_S.has(c.est)).length;
+
+  // Por contactar: solo para sourcers y owners (no recruiters)
+  const btnContactar = document.getElementById('ni-contactar');
+  if (btnContactar) btnContactar.style.display = (HAT === 'recruiter') ? 'none' : 'flex';
+
+  const nbcontactar = document.getElementById('nb-contactar');
+  if(nbcontactar) nbcontactar.textContent = getContactarCands().length;
+
   const nbpipe = document.getElementById('nb-pipe');
-  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)).length;
+  if(nbpipe) nbpipe.textContent = cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)).length;
 }
 
 function buildStaleEmail(c){
@@ -335,6 +557,8 @@ async function directLogin(id){
   document.getElementById('app').style.display='flex';
   loadLocalConfig(); init();
   if(!IS_OFFLINE) setTimeout(()=>syncNow(), 300);
+  // Arrancar polling de notificaciones solo para recruiters y owners
+  startNotifPolling();
 }
 
 function init(){
@@ -347,10 +571,23 @@ function init(){
 function canSeeCandidate(c) {
   if (!CU) return false;
   const role = (HAT || '').toLowerCase();
-  if (role === 'supervisor' || role === 'viewer') return true; 
-  if (role === 'owner') return isMyTeamCandidate(c); 
-  if (role === 'sourcer') return c.src && c.src.toLowerCase().includes(CU.name.toLowerCase());
-  if (role === 'recruiter') return c.rec && c.rec.toLowerCase().includes(CU.name.toLowerCase());
+  if (role === 'supervisor' || role === 'viewer') return true;
+  if (role === 'owner') return isMyTeamCandidate(c);
+  if (role === 'sourcer') {
+    // Coincidencia flexible de nombre (ignora mayúsculas y espacios extra)
+    const srcName = (c.src || '').trim().toLowerCase();
+    const cuName  = CU.name.trim().toLowerCase();
+    return srcName === cuName || srcName.includes(cuName) || cuName.includes(srcName);
+  }
+  if (role === 'recruiter') {
+    // El recruiter ve sus candidatos asignados directamente
+    const recName = (c.rec || '').trim().toLowerCase();
+    const cuName  = CU.name.trim().toLowerCase();
+    if (recName === cuName || recName.includes(cuName) || cuName.includes(recName)) return true;
+    // También ve candidatos de su equipo que aún no tienen recruiter asignado (sit vacío)
+    if (!c.rec && isMyTeamCandidate(c)) return true;
+    return false;
+  }
   return false;
 }
 
@@ -374,41 +611,6 @@ function canEditFull(c) { return (HAT === 'owner' || HAT === 'supervisor'); }
 function canSeePools() { return true; }
 function canAddCandidates() { return HAT !== 'viewer'; }
 
-function buildSidebar(){
-  const poolsEl=document.getElementById('sb-pools');
-  if(!canSeePools()){ document.getElementById('sb-pool-sec').style.display='none'; }
-  else {
-    document.getElementById('sb-pool-sec').style.display='';
-    poolsEl.innerHTML=pools.map(p=>`
-      <button class="ni ni-pool-${p.id}" onclick="nav('pool',${p.id})">
-        <span class="dot" style="background:${p.color}"></span>
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.name}</span>
-        <span class="nb live">${cands.filter(c=>c.pid===p.id&&canSeeCandidate(c)).length}</span>
-      </button>`).join('');
-  }
-  document.querySelectorAll('#btn-add-cand,#btn-add-pipe').forEach(b=>b.style.display=canAddCandidates()?'':'none');
-  const ppf=document.getElementById('pipe-pool-f');
-  if(ppf) ppf.innerHTML='<option value="">Todos los pools</option>'+pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
-  updateStaleSidebar();
-  
-  const btnReview = document.getElementById('ni-review');
-  if (btnReview) btnReview.style.display = (HAT === 'sourcer') ? 'none' : 'flex';
-
-  // "Por contactar" solo visible para sourcers (y owners/supervisor)
-  const btnContactar = document.getElementById('ni-contactar');
-  if (btnContactar) btnContactar.style.display = (HAT === 'recruiter') ? 'none' : 'flex';
-
-  const nbcontactar = document.getElementById('nb-contactar');
-  if(nbcontactar) nbcontactar.textContent = getContactarCands().length;
-
-  const nbr=document.getElementById('nb-review');
-  // ARREGLO: Solo cuenta los que están "Por revisar" y ESTRICTAMENTE en la etapa "Contactado"
-  if(nbr) nbr.textContent=cands.filter(c=>canSeeCandidate(c) && (!c.sit||c.sit==='') && !DISC_S.has(c.est)).length;
-  
-  const nbpipe = document.getElementById('nb-pipe');
-  if(nbpipe) nbpipe.textContent=cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)).length;
-}
-
 function updateFooter(){
   const roleLabel={owner:'Owner',recruiter:'Recruiter',sourcer:'Sourcer',supervisor:'Supervisor',viewer:'Tech Lead'};
   const ava=document.getElementById('sb-ava');
@@ -420,7 +622,7 @@ function updateFooter(){
   document.getElementById('sb-switch').style.display='block';
 }
 
-function switchHat(){ location.reload(); }
+function switchHat(){ stopNotifPolling(); location.reload(); }
 
 function nav(view, poolId){
   if(poolId!==undefined) currentPool=poolId;
@@ -441,6 +643,10 @@ function nav(view, poolId){
     document.getElementById('v-kanban').style.display='flex';
     document.getElementById('ni-kanban')?.classList.add('active');
     renderKanban();
+  } else if(view==='metrics'){
+    document.getElementById('v-metrics').style.display='flex';
+    document.getElementById('ni-metrics')?.classList.add('active');
+    renderMetrics();
   } else if(view==='analytics'){
     document.getElementById('v-analytics').style.display='flex';
     document.getElementById('ni-analytics')?.classList.add('active');
@@ -469,7 +675,17 @@ function nav(view, poolId){
 }
 
 function sitB(s){ const m={Aprobado:'ba',Rechazado:'br','Por revisar':'bpr'}; return `<span class="badge ${m[s]||''}">${s||'—'}</span>`; }
-function estB(e){ const m={'Por contactar':'bpc',Contactado:'bco',Screening:'bsc','Entrevista Inicial':'bei','Entrevista EM':'bem',Misión:'bmi',Descartado:'bde','No interesado':'bde'}; return `<span class="badge ${m[e]||''}">${e||'—'}</span>`; }
+function estB(e){
+  const m={
+    'Por contactar':'bpc', 'Contactado':'bco', 'Screening':'bsc',
+    'Entrevista TR':'bei', 'Entrevista EM':'bem',
+    'Misión':'bmi', 'Referencias':'bref', 'Contratado':'bhired',
+    'Descartado':'bde', 'No interesado':'bde',
+    // legacy compat
+    'Entrevista Inicial':'bei'
+  };
+  return `<span class="badge ${m[e]||''}">${e||'—'}</span>`;
+}
 function chips(s){ if(!s) return '—'; return s.split(',').map(x=>`<span class="chip">${x.trim()}</span>`).join(''); }
 function pname(id){ return pools.find(p=>p.id==id)?.name||'—'; }
 function pcolor(id){ return pools.find(p=>p.id==id)?.color||'var(--txt3)'; }
@@ -620,18 +836,44 @@ function getReviewCands(){
 
 function renderReview(){
   const rb = document.getElementById('review-body'); if(!rb) return;
-  // Bloqueo duro: sourcer nunca puede ver ni usar esta vista
-  if(HAT === 'sourcer'){
-    rb.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--txt3)">
-      <div style="font-size:24px;margin-bottom:8px">⛔</div>
-      <div style="font-size:13px">Solo recruiters y owners pueden revisar candidatos</div>
-    </div>`;
-    return;
-  }
   const pending = getReviewCands();
+  const isSourcer = HAT === 'sourcer';
 
   const mkCard = (c) => {
     const staleWarn = isStale(c) ? `<span style="color:var(--amber);font-size:10px"> ⚠${daysInStage(c)}d</span>` : '';
+    const lastSent  = localStorage.getItem(`notif_sent_${c.id}`);
+    const recentlySent = lastSent && (Date.now() - new Date(lastSent)) / 60000 < 5;
+
+    // Vista sourcer: solo tarjeta informativa + botón notificar
+    if (isSourcer) {
+      return `<div class="rev-card" id="rcard-${c.id}">
+        <div class="rev-card-top">
+          <div style="flex:1;min-width:0">
+            <div class="rev-name">${c.n}${staleWarn}</div>
+            <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
+            ${c.fb ? `<div class="rev-fb">"${c.fb}"</div>` : ''}
+            <div style="font-size:10px;color:var(--txt3);margin-top:3px">Recruiter: <strong style="color:var(--txt2)">${c.rec||'—'}</strong></div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+            ${estB(c.est)}
+            <button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver</button>
+          </div>
+        </div>
+        ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px;margin-bottom:8px;display:inline-flex">↗ LinkedIn</a>` : ''}
+        <div style="margin-top:8px">
+          <button
+            id="notif-btn-${c.id}"
+            class="btn btn-sm"
+            style="width:100%;justify-content:center;${recentlySent ? 'opacity:.5;color:var(--green);border-color:var(--gborder)' : 'border-color:var(--pborder);color:var(--p2)'}"
+            onclick="sendNotifToRecruiter(${c.id})"
+            ${recentlySent ? 'disabled' : ''}>
+            ${recentlySent ? '✓ Notificado recientemente' : '🔔 Notificar al recruiter'}
+          </button>
+        </div>
+      </div>`;
+    }
+
+    // Vista recruiter/owner: tarjeta completa con acciones de decisión
     return `<div class="rev-card" id="rcard-${c.id}">
       <div class="rev-card-top">
         <div style="flex:1;min-width:0">
@@ -655,20 +897,24 @@ function renderReview(){
     </div>`;
   };
 
+  const titleSourcer = `⏳ Pendientes de revisión <span class="nb">${pending.length}</span>
+    <span style="font-size:10px;font-weight:400;color:var(--txt3);margin-left:8px">Notifica al recruiter para que revise tus candidatos</span>`;
+  const titleRecruiter = `⏳ Pendientes de revisión <span class="nb">${pending.length}</span>`;
+
   rb.innerHTML = `
     <div class="mg" style="margin-bottom:16px">
       <div class="mc"><div class="mcl">Para revisar</div><div class="mcv mv-a">${pending.length}</div><div class="mcs">pendientes</div></div>
-      <div class="mc"><div class="mcl">Rechazados</div><div class="mcv mv-r">${cands.filter(c=>canSeeCandidate(c)&&c.sit==='Rechazado').length}</div><div class="mcs">histórico</div></div>
+      <div class="mc"><div class="mcl">Rechazados</div><div class="mcv mv-r">${cands.filter(c=>canSeeCandidate(c)&&normalizeSit(c.sit)==='Rechazado').length}</div><div class="mcs">histórico</div></div>
     </div>
     ${pending.length ? `
     <div class="rev-section">
-      <div class="rev-sec-title">⏳ Pendientes de revisión <span class="nb">${pending.length}</span></div>
+      <div class="rev-sec-title">${isSourcer ? titleSourcer : titleRecruiter}</div>
       <div class="rev-list">${pending.map(c=>mkCard(c)).join('')}</div>
     </div>` : `
     <div style="text-align:center;padding:40px 20px;color:var(--txt3)">
       <div style="font-size:28px;margin-bottom:8px">✓</div>
       <div style="font-size:13px">Sin candidatos pendientes de revisión</div>
-      <div style="font-size:11px;margin-top:4px">Los sourcers agregarán nuevos candidatos aquí</div>
+      <div style="font-size:11px;margin-top:4px">${isSourcer ? 'Agrega candidatos al pool para que el recruiter los revise' : 'Los sourcers agregarán nuevos candidatos aquí'}</div>
     </div>`}
   `;
 }
@@ -995,7 +1241,7 @@ async function saveUpdate(id, role) {
       toast('Sin permisos','El recruiter rechazó este candidato — no puede avanzar','err','✕');
       return;
     }
-    const newEst = document.getElementById('u-est')?.value;
+    const newEst = normalizeEst(document.getElementById('u-est')?.value || '');
     if(newEst) {
       changes.est = newEst;
       const newDates = {...(c.dates||{})};
@@ -1006,7 +1252,7 @@ async function saveUpdate(id, role) {
     changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
     const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
   } else {
-    const newEst = document.getElementById('u-est')?.value;
+    const newEst = normalizeEst(document.getElementById('u-est')?.value || '');
     if(newEst) {
       changes.est = newEst;
       const newDates = {...(c.dates||{})};
@@ -1098,12 +1344,248 @@ async function saveCand(){
     const res = await apiCall('addCandidate', nc);
     nc.id = res.id; cands.unshift(nc); setSyncStatus('ok');
     buildSidebar(); closeModal('mb-cand');
-    if(document.getElementById('v-pool').style.display==='flex') renderPool();
-    toast('Candidato agregado', `${n} agregado al pool`, 'ok', '⬡');
-    setTimeout(()=>openEmailModal(nc.id), 400);
+    // Refrescar todas las vistas relevantes
+    if(document.getElementById('v-pool')?.style.display==='flex') renderPool();
+    if(document.getElementById('v-review')?.style.display==='flex') renderReview();
+    toast('Candidato agregado', `${n} → aparece en "Revisión sourcing" para ${nc.rec}`, 'ok', '⬡');
   } catch(err) {
     toast('Error al guardar', err.message, 'err', '⚠'); setSyncStatus('error');
   } finally { btn.disabled=false; btn.textContent='Guardar candidato'; }
+}
+
+// ══════════════════════════════════════════════════════════════
+// MOTOR DE MÉTRICAS
+// ══════════════════════════════════════════════════════════════
+
+// Devuelve lunes y domingo de la semana que contiene 'date'
+function getWeekRange(date) {
+  const d = new Date(date);
+  const day = d.getDay(); // 0=dom, 1=lun...
+  const diff = (day === 0) ? -6 : 1 - day; // ajuste a lunes
+  const mon = new Date(d); mon.setDate(d.getDate() + diff); mon.setHours(0,0,0,0);
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23,59,59,999);
+  return { start: mon, end: sun };
+}
+
+// Últimas N semanas (empezando en lunes)
+function getLastNWeeks(n) {
+  const weeks = [];
+  const today = new Date();
+  for (let i = 0; i < n; i++) {
+    const ref = new Date(today);
+    ref.setDate(today.getDate() - (i * 7));
+    const { start, end } = getWeekRange(ref);
+    weeks.unshift({ start, end,
+      label: `${start.getDate()}/${start.getMonth()+1} – ${end.getDate()}/${end.getMonth()+1}`
+    });
+  }
+  return weeks;
+}
+
+// Últimos N meses
+function getLastNMonths(n) {
+  const months = [];
+  const today = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const start = new Date(d.getFullYear(), d.getMonth(), 1);
+    const end   = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+    const label = start.toLocaleDateString('es-CL', { month: 'short', year: '2-digit' });
+    months.push({ start, end, label });
+  }
+  return months;
+}
+
+// Comprueba si la fecha de una etapa cae en el rango dado
+function dateInRange(dateStr, start, end) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  return d >= start && d <= end;
+}
+
+// Métricas de un sourcer en un rango de fechas
+function calcSourcerMetrics(sourcerName, start, end, candList) {
+  const mine = candList.filter(c => c.src === sourcerName);
+
+  const agregados    = mine.filter(c => dateInRange(c.dt || c.dates?.Contactado, start, end)).length;
+  const aprobados    = mine.filter(c => normalizeSit(c.sit) === 'Aprobado' &&
+                         dateInRange(c.dates?.['Por contactar'] || c.dates?.Contactado, start, end)).length;
+  const contactados  = mine.filter(c => dateInRange(c.dates?.Contactado, start, end)).length;
+  const entrevTR     = mine.filter(c => dateInRange(c.dates?.['Entrevista TR'] || c.dates?.['Entrevista Inicial'], start, end)).length;
+  const entrevEM     = mine.filter(c => dateInRange(c.dates?.['Entrevista EM'], start, end)).length;
+  const enMision     = mine.filter(c => dateInRange(c.dates?.Misión, start, end)).length;
+  const enReferencias= mine.filter(c => dateInRange(c.dates?.Referencias, start, end)).length;
+  const contratados  = mine.filter(c => dateInRange(c.dates?.Contratado, start, end)).length;
+
+  // Tasas de conversión (evitar división por 0)
+  const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) : null;
+
+  return {
+    sourcer:      sourcerName,
+    agregados,    aprobados,   contactados,
+    entrevTR,     entrevEM,    enMision,
+    enReferencias,contratados,
+    tasaTR:       pct(entrevTR,    contactados),  // contactados → TR
+    tasaEM:       pct(entrevEM,    entrevTR),      // TR → EM
+    tasaMision:   pct(enMision,    entrevEM),      // EM → Misión
+    tasaContrat:  pct(contratados, contactados),   // contactados → contratado (global)
+  };
+}
+
+// Lista de sourcers visibles según el rol actual
+function getVisibleSourcers() {
+  if (HAT === 'sourcer') return [CU.name];
+  if (HAT === 'owner') {
+    const sq = SQUADS.find(s => s.id === CU.team);
+    return sq ? sq.sourcers : [];
+  }
+  // supervisor / viewer → todos
+  return USERS.filter(u => u.role === 'sourcer').map(u => u.name);
+}
+
+// ── Renderizado de la tabla de métricas ─────────────────────
+function renderMetrics() {
+  const el = document.getElementById('metrics-body'); if (!el) return;
+  const mode    = document.getElementById('metrics-mode')?.value || 'weekly';
+  const nPeriods = mode === 'weekly' ? 6 : 4;
+  const periods  = mode === 'weekly' ? getLastNWeeks(nPeriods) : getLastNMonths(nPeriods);
+  const sourcers = getVisibleSourcers();
+  const allCands = cands.filter(c => canSeeCandidate(c));
+
+  // ── Tabla por sourcer x período ───────────────────────────
+  const rows = sourcers.map(src =>
+    periods.map(p => calcSourcerMetrics(src, p.start, p.end, allCands))
+  );
+
+  // ── Totales del período más reciente ─────────────────────
+  const latest = periods[periods.length - 1];
+  const totals  = calcSourcerMetrics('__all__', latest.start, latest.end,
+    allCands.map(c => ({...c, src: '__all__'}))
+  );
+
+  const fmtPct = v => v === null ? '<span style="color:var(--txt3)">—</span>'
+                                  : `<span style="color:${v>=30?'var(--green)':v>=15?'var(--amber)':'var(--red)'}; font-weight:600">${v}%</span>`;
+  const fmtN   = (v, dim) => v === 0
+    ? `<span style="color:var(--txt3)">0</span>`
+    : `<span style="color:${dim};font-weight:600;font-family:var(--mono)">${v}</span>`;
+
+  // ── HTML ──────────────────────────────────────────────────
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <select id="metrics-mode" onchange="renderMetrics()"
+        style="background:var(--bg3);border:1px solid var(--border2);color:var(--txt);border-radius:var(--r);padding:5px 9px;font-size:12px;font-family:var(--font);outline:none">
+        <option value="weekly" ${mode==='weekly'?'selected':''}>Semanas (últimas 6)</option>
+        <option value="monthly" ${mode==='monthly'?'selected':''}>Meses (últimos 4)</option>
+      </select>
+      <button class="btn btn-sm" onclick="exportMetricsCSV()">↓ Exportar CSV</button>
+      <span style="font-size:11px;color:var(--txt3);margin-left:auto">Actualizado al cargar la página</span>
+    </div>
+
+    ${sourcers.map((src, si) => {
+      const srcRows = rows[si];
+      const user    = USERS.find(u => u.name === src);
+      const color   = user?.color || 'var(--p)';
+
+      // Resumen del período actual para el header
+      const cur = srcRows[srcRows.length - 1];
+
+      return `
+      <div style="margin-bottom:24px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <div style="width:26px;height:26px;border-radius:50%;background:${color}22;color:${color};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">
+            ${src.split(' ').map(w=>w[0]).join('').slice(0,2)}
+          </div>
+          <span style="font-size:13px;font-weight:600">${src}</span>
+          <span style="font-size:10px;color:var(--txt3);margin-left:4px">
+            esta semana: ${cur.entrevTR} TR · ${cur.entrevEM} EM · ${cur.contratados} contratados
+          </span>
+        </div>
+
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:700px">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:6px 10px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);white-space:nowrap">Período</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Agregados</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Contactados</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--p2);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Entrev. TR</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--pink);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Entrev. EM</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--amber);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Misión</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Referencias</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--green);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Contratados</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">% TR</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">% EM</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">% Misión</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--green);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">% Contrat.</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${srcRows.map((m, pi) => {
+                const isLatest = pi === srcRows.length - 1;
+                const bg = isLatest ? 'background:rgba(124,110,240,.06);' : '';
+                const fw = isLatest ? 'font-weight:600;' : '';
+                return `<tr style="${bg}border-bottom:1px solid var(--border)">
+                  <td style="padding:7px 10px;${fw}color:${isLatest?'var(--txt)':'var(--txt2)'};white-space:nowrap">${periods[pi].label}${isLatest?' <span style="font-size:9px;color:var(--p2);font-weight:600">← actual</span>':''}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtN(m.agregados,'var(--txt)')}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtN(m.contactados,'var(--txt2)')}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtN(m.entrevTR,'var(--p2)')}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtN(m.entrevEM,'var(--pink)')}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtN(m.enMision,'var(--amber)')}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtN(m.enReferencias,'var(--blue)')}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtN(m.contratados,'var(--green)')}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtPct(m.tasaTR)}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtPct(m.tasaEM)}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtPct(m.tasaMision)}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtPct(m.tasaContrat)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    }).join('')}
+
+    ${sourcers.length > 1 ? `
+    <div style="margin-top:8px;padding-top:16px;border-top:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--txt2)">Resumen equipo — período actual (${periods[periods.length-1].label})</div>
+      <div class="mg">
+        <div class="mc"><div class="mcl">Entrevistas TR</div><div class="mcv mv-p">${rows.reduce((s,r)=>s+r[r.length-1].entrevTR,0)}</div><div class="mcs">esta semana</div></div>
+        <div class="mc"><div class="mcl">Entrevistas EM</div><div class="mcv" style="color:var(--pink)">${rows.reduce((s,r)=>s+r[r.length-1].entrevEM,0)}</div><div class="mcs">esta semana</div></div>
+        <div class="mc"><div class="mcl">En Misión</div><div class="mcv mv-a">${rows.reduce((s,r)=>s+r[r.length-1].enMision,0)}</div><div class="mcs">esta semana</div></div>
+        <div class="mc"><div class="mcl">Contratados</div><div class="mcv mv-g">${rows.reduce((s,r)=>s+r[r.length-1].contratados,0)}</div><div class="mcs">esta semana</div></div>
+      </div>
+    </div>` : ''}
+  `;
+}
+
+// ── Exportar métricas a CSV ───────────────────────────────────
+function exportMetricsCSV() {
+  const mode    = document.getElementById('metrics-mode')?.value || 'weekly';
+  const periods = mode === 'weekly' ? getLastNWeeks(6) : getLastNMonths(4);
+  const sourcers = getVisibleSourcers();
+  const allCands = cands.filter(c => canSeeCandidate(c));
+
+  const headers = ['Sourcer','Período','Agregados','Contactados','Entrev.TR','Entrev.EM',
+                   'Misión','Referencias','Contratados','%TR','%EM','%Misión','%Contrat.'];
+  const csvRows = [headers];
+
+  sourcers.forEach(src => {
+    periods.forEach(p => {
+      const m = calcSourcerMetrics(src, p.start, p.end, allCands);
+      csvRows.push([
+        src, p.label, m.agregados, m.contactados,
+        m.entrevTR, m.entrevEM, m.enMision, m.enReferencias, m.contratados,
+        m.tasaTR ?? '', m.tasaEM ?? '', m.tasaMision ?? '', m.tasaContrat ?? ''
+      ]);
+    });
+  });
+
+  const csv = csvRows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
+  a.download = `metricas_sourcing_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  toast('CSV exportado', `${sourcers.length} sourcers · ${periods.length} períodos`, 'ok', '↓');
 }
 
 function renderAnalytics(){
