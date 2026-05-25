@@ -93,6 +93,12 @@ function localFallback(action, payload) {
     localStorage.setItem('st4_notifs', JSON.stringify(notifs));
     return { ok: true };
   }
+  if (action === 'deleteCandidate') {
+    const stored = JSON.parse(localStorage.getItem('st4_cands') || '[]');
+    const filtered = stored.filter(c => c.id !== payload.id);
+    localStorage.setItem('st4_cands', JSON.stringify(filtered));
+    return { ok: true };
+  }
   return { ok: true };
 }
 
@@ -419,9 +425,12 @@ function normalizeSit(sit) {
 function isActiveInPipeline(c) {
   const est = normalizeEst(c.est);
   if (DISC_S.has(est)) return false;
-  if (HIRED_S.has(est)) return false; // contratados van a su propia vista
-  if (normalizeSit(c.sit) === 'Rechazado') return false;
-  return PIPELINE_STAGES.has(est);
+  if (HIRED_S.has(est)) return false;
+  if (c.sit === 'Rechazado') return false;
+  // 'Por contactar' solo entra al pipeline si ya fue aprobado por el recruiter
+  if (est === 'Por contactar') return c.sit === 'Aprobado';
+  // El resto de etapas activas entran directamente
+  return new Set(['Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias']).has(est);
 }
 
 const today_d = new Date();
@@ -463,6 +472,7 @@ function nowCL() {
 // ────────────────────────────────────────────────────────────
 
 function loadLocalConfig() {
+  const st = localStorage.getItem('st4_thresh');
   thresholds = st ? JSON.parse(st) : {...DEFAULT_THRESHOLDS};
   USERS.forEach(u => { emailMap[u.name] = u.email; });
   API_KEY = localStorage.getItem('st4_key') || '';
@@ -607,24 +617,28 @@ function init(){
   toast('Bienvenid@',CU.name,CU.role==='viewer'?'inf':'ok','⬡');
 }
 
+// Normaliza una cadena: minúsculas + sin tildes
+// Resuelve el problema de "Joaquín" vs "Joaquin", "María" vs "Maria", etc.
+function normName(s) {
+  return (s || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 function canSeeCandidate(c) {
   if (!CU) return false;
   const role = (HAT || '').toLowerCase();
   if (role === 'supervisor' || role === 'viewer') return true;
   if (role === 'owner') return isMyTeamCandidate(c);
   if (role === 'sourcer') {
-    // Coincidencia flexible de nombre (ignora mayúsculas y espacios extra)
-    const srcName = (c.src || '').trim().toLowerCase();
-    const cuName  = CU.name.trim().toLowerCase();
-    return srcName === cuName || srcName.includes(cuName) || cuName.includes(srcName);
+    return normName(c.src) === normName(CU.name) ||
+           normName(c.src).includes(normName(CU.name)) ||
+           normName(CU.name).includes(normName(c.src));
   }
   if (role === 'recruiter') {
-    // El recruiter ve sus candidatos asignados directamente
-    const recName = (c.rec || '').trim().toLowerCase();
-    const cuName  = CU.name.trim().toLowerCase();
-    if (recName === cuName || recName.includes(cuName) || cuName.includes(recName)) return true;
-    // También ve candidatos de su equipo que aún no tienen recruiter asignado (sit vacío)
-    if (!c.rec && isMyTeamCandidate(c)) return true;
+    const recNorm = normName(c.rec);
+    const cuNorm  = normName(CU.name);
+    if (recNorm === cuNorm || recNorm.includes(cuNorm) || cuNorm.includes(recNorm)) return true;
+    if (!c.rec || c.rec.trim() === '') return isMyTeamCandidate(c);
     return false;
   }
   return false;
@@ -633,8 +647,9 @@ function canSeeCandidate(c) {
 function isMyTeamCandidate(c) {
   const sq = SQUADS.find(s => s.id === CU.team);
   if (!sq) return false;
-  const m = [...sq.owners, ...sq.recruiters, ...sq.sourcers];
-  return m.includes(c.src) || m.includes(c.rec);
+  const members = [...sq.owners, ...sq.recruiters, ...sq.sourcers];
+  // Comparar con normalización de acentos
+  return members.some(m => normName(m) === normName(c.src) || normName(m) === normName(c.rec));
 }
 
 function canEdit(c) {
@@ -867,10 +882,16 @@ function renderKanban(){
 }
 
 function getReviewCands(){
-  // Solo candidatos sin situación asignada — pendientes de decisión del recruiter
-  // Nota: "Por revisar" de la BD se trata como Aprobado via normalizeSit(),
-  // así que aquí solo aparecen los que genuinamente no tienen sit (sit === '' o null)
-  return cands.filter(c => canSeeCandidate(c) && (!c.sit || c.sit === '') && !DISC_S.has(c.est));
+  // Candidatos pendientes de decisión del recruiter:
+  // - sit vacío (sin decisión aún)
+  // - est = 'Por contactar' (recién agregados, nadie los ha tocado)
+  // Excluye descartados y rechazados
+  return cands.filter(c =>
+    canSeeCandidate(c) &&
+    (!c.sit || c.sit === '') &&
+    !DISC_S.has(c.est) &&
+    c.est !== 'Rechazado'
+  );
 }
 
 function renderReview(){
@@ -962,10 +983,12 @@ function renderReview(){
 // VISTA POR CONTACTAR
 // =====================================
 function getContactarCands(){
+  // Solo aparecen aquí si el recruiter YA aprobó (sit='Aprobado')
+  // Y el sourcer todavía no los ha contactado (est='Por contactar')
   return cands.filter(c =>
     canSeeCandidate(c) &&
     c.est === 'Por contactar' &&
-    normalizeSit(c.sit) === 'Aprobado' &&
+    c.sit === 'Aprobado' &&
     !DISC_S.has(c.est)
   );
 }
@@ -973,6 +996,11 @@ function getContactarCands(){
 function renderContactar(){
   const cb = document.getElementById('contactar-body'); if(!cb) return;
   const pending = getContactarCands();
+
+  // Banner explicativo del flujo
+  const flowBanner = `<div style="font-size:11px;color:var(--txt2);margin-bottom:14px;padding:9px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);border-left:2px solid var(--p2)">
+    <strong style="color:var(--p2)">Flujo:</strong> Recruiter aprueba perfil → aparece aquí → tú lo contactas → pasa a pipeline
+  </div>`;
 
   if(!pending.length){
     cb.innerHTML=`<div style="text-align:center;padding:40px 20px;color:var(--txt3)">
@@ -984,6 +1012,7 @@ function renderContactar(){
   }
 
   cb.innerHTML = `
+    ${flowBanner}
     <div class="mg" style="margin-bottom:16px">
       <div class="mc"><div class="mcl" style="color:var(--p2)">Por contactar</div><div class="mcv mv-p">${pending.length}</div><div class="mcs">aprobados listos</div></div>
       <div class="mc"><div class="mcl">Hoy</div><div class="mcv mv-g">${pending.filter(c=>c.dates?.['Por contactar']===todayCL()).length}</div><div class="mcs">aprobados hoy</div></div>
@@ -1044,15 +1073,20 @@ async function reviewAction(id, action){
 
   if(action === 'approve') {
     changes.sit = 'Aprobado';
-    // Al aprobar: si el candidato no ha sido contactado aún, pasa a "Por contactar"
-    if (!c.est || c.est === 'Contactado' || c.est === '') {
+    // Asegurarse que est quede en 'Por contactar' independiente de lo que tenía
+    // El sourcer es quien después lo mueve a 'Contactado' manualmente
+    if(c.est !== 'Por contactar') {
       changes.est = 'Por contactar';
       const newDates = {...(c.dates||{})};
       if(!newDates['Por contactar']) newDates['Por contactar'] = todayCL();
       changes.dates = newDates;
     }
+    // sit='Aprobado' + est='Por contactar' → aparece en vista "Por contactar" del sourcer
   }
-  else if(action === 'reject')  changes.sit = 'Rechazado';
+  else if(action === 'reject') {
+    changes.sit = 'Rechazado';
+    // Rechazado queda en el pool como historial, no en pipeline
+  }
 
   Object.assign(c, changes);
   if(changes.dates) c.dates = changes.dates;
@@ -1093,7 +1127,10 @@ function openPanel(id){
         <div><h2 style="font-size:14px;font-weight:600;margin-bottom:2px">${c.n} <span style="font-size:10px;color:var(--txt3);font-family:var(--mono)">#ST-${String(c.id).padStart(4,'0')}</span></h2>
         <div style="font-size:11px;color:var(--txt2)">${c.emp||'—'} · ${c.s||'?'}</div></div>
       </div>
-      <button class="pc" onclick="closePanel()">✕</button>
+      <div style="display:flex;gap:5px;align-items:center">
+        <button class="btn btn-sm btn-danger" style="font-size:10px;padding:3px 8px" onclick="deleteCandidate(${c.id})" title="Eliminar candidato permanentemente">🗑 Eliminar</button>
+        <button class="pc" onclick="closePanel()">✕</button>
+      </div>
     </div>
     ${c.l || c.cv ? `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
@@ -1182,31 +1219,36 @@ function recruiterForm(c){
 }
 
 function sourcerForm(c,salOk){
-  const sitNorm    = normalizeSit(c.sit);
-  const isUndecided = !c.sit || c.sit === '';
-  const isRejected  = sitNorm === 'Rechazado';
-  const isApproved  = sitNorm === 'Aprobado';
+  const isUndecided    = !c.sit || c.sit === '';
+  const isRejected     = c.sit === 'Rechazado';
+  const isApproved     = c.sit === 'Aprobado';
   const isPorContactar = c.est === 'Por contactar';
-  const stagesAllowed = isRejected ? [c.est] : [...STAGES,'Descartado'];
+  // Pendiente = sin decisión del recruiter (sit vacío), sin importar el est
+  const isPending      = isUndecided;
+  // Listo para contactar = aprobado Y en "Por contactar"
+  const isReadyToCall  = isApproved && isPorContactar;
+  const stagesAllowed  = isRejected ? [c.est] : [...STAGES,'Descartado'];
 
   return `<div class="psec"><div class="pst">Actualizar (Sourcer)</div><div class="uf">
-    ${isUndecided ? `
+    ${isPending ? `
     <div style="font-size:11px;color:var(--txt3);padding:9px 11px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2);margin-bottom:8px">
-      ⏳ Pendiente de revisión — el recruiter aún no ha dado el visto bueno.
+      ⏳ <strong>Pendiente de revisión</strong> — el recruiter aún no ha aprobado ni rechazado este perfil.
+      ${isPorContactar ? '<br><span style="font-size:10px;color:var(--txt3)">Puedes notificarle para que lo revise.</span>' : ''}
     </div>` : isRejected ? `
     <div style="font-size:11px;color:var(--red);padding:9px 11px;background:rgba(224,92,92,.08);border-radius:var(--r);border-left:2px solid var(--red);margin-bottom:8px">
       ✕ Candidato <strong>rechazado</strong> por el recruiter — no puede avanzar en el proceso.
-    </div>` : isPorContactar ? `
+    </div>` : isReadyToCall ? `
     <div style="font-size:11px;color:var(--p2);padding:9px 11px;background:var(--pbg);border-radius:var(--r);border-left:2px solid var(--p);margin-bottom:8px">
-      📬 <strong>Aprobado — listo para contactar.</strong> Cuando lo contactes, márcalo como Contactado.
+      📬 <strong>Aprobado — listo para contactar.</strong> Una vez que lo contactes, márcalo como Contactado.
     </div>` : `
     <div style="font-size:11px;color:var(--green);padding:9px 11px;background:rgba(45,212,160,.08);border-radius:var(--r);border-left:2px solid var(--green);margin-bottom:8px">
-      ✓ Candidato <strong>aprobado</strong> — puedes avanzar el proceso.
+      ✓ Candidato <strong>aprobado</strong> — en proceso activo.
     </div>`}
     <label>Estado pipeline</label>
-    <select id="u-est" ${isRejected?'disabled':''}>
+    <select id="u-est" ${isRejected||isPending?'disabled':''}>
       ${stagesAllowed.map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}
     </select>
+    ${isPending ? `<div style="font-size:10px;color:var(--txt3);margin-top:-4px;margin-bottom:8px">El estado solo se puede cambiar una vez que el recruiter apruebe el perfil.</div>` : ''}
     <label>Equipo sugerido</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
@@ -1216,7 +1258,8 @@ function sourcerForm(c,salOk){
     <input type="url" id="u-cv" value="${c.cv||''}" placeholder="https://drive.google.com/file/d/...">
     <div style="display:flex;gap:6px;flex-direction:column">
       ${!isRejected?`<button class="btn btn-p btn-sm" style="justify-content:center" onclick="saveUpdate(${c.id},'sourcer')">Guardar cambios</button>`:''}
-      ${isPorContactar?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--p);color:var(--p2)" onclick="marcarContactado(${c.id})">📬 Marcar como Contactado</button>`:''}
+      ${isReadyToCall?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--p);color:var(--p2)" onclick="marcarContactado(${c.id})">📬 Marcar como Contactado</button>`:''}
+      ${isPending&&isPorContactar?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="sendNotifToRecruiter(${c.id})" id="notif-btn-${c.id}">🔔 Notificar al recruiter</button>`:''}
     </div>
   </div></div>`;
 }
@@ -1283,12 +1326,20 @@ async function saveUpdate(id, role) {
     changes.sit = document.getElementById('u-sit').value;
     changes.fb  = document.getElementById('u-fb').value;
   } else if(role==='sourcer'){
-    const sitNorm = normalizeSit(c.sit);
     if(!c.sit || c.sit === ''){
-      toast('Pendiente de revisión','El recruiter aún no ha dado el visto bueno','wrn','⏳');
+      // Puede guardar notas/CV/equipo pero no cambiar el estado
+      changes.eq  = document.getElementById('u-eq')?.value  || c.eq;
+      changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
+      const cve = document.getElementById('u-cv'); if(cve) changes.cv = cve.value.trim();
+      Object.assign(c, changes);
+      setSyncStatus('loading');
+      try { await apiCall('updateCandidate',{id,changes,changedBy:CU.name}); setSyncStatus('ok'); }
+      catch(err){ setSyncStatus('error','⚠ Guardado local'); }
+      toast('Notas guardadas','El estado solo cambia cuando el recruiter apruebe','ok','✓');
+      afterEdit(id, c.est, c.est);
       return;
     }
-    if(sitNorm === 'Rechazado'){
+    if(c.sit === 'Rechazado'){
       toast('Sin permisos','El recruiter rechazó este candidato — no puede avanzar','err','✕');
       return;
     }
@@ -1348,6 +1399,36 @@ async function discardC(id){
   afterEdit(id,prev,'Descartado');
 }
 
+// Elimina el candidato completamente — disponible para todos los roles
+async function deleteCandidate(id){
+  const c = cands.find(x=>x.id===id);
+  if(!c) return;
+  if(!confirm(`¿Eliminar permanentemente a ${c.n}?\n\nEsta acción no se puede deshacer.`)) return;
+
+  setSyncStatus('loading');
+  try {
+    await apiCall('deleteCandidate', { id, deletedBy: CU.name });
+    setSyncStatus('ok');
+  } catch(err) {
+    setSyncStatus('error','⚠ Guardado local');
+  }
+
+  // Eliminar del array local
+  const idx = cands.findIndex(x=>x.id===id);
+  if(idx !== -1) cands.splice(idx, 1);
+
+  // Guardar caché local
+  localStorage.setItem('st4_cands', JSON.stringify(cands));
+
+  closePanel();
+  buildSidebar();
+  if(document.getElementById('v-pool')?.style.display==='flex') renderPool();
+  if(document.getElementById('v-pipeline')?.style.display==='flex') renderPipeline();
+  if(document.getElementById('v-review')?.style.display==='flex') renderReview();
+  if(document.getElementById('v-contactar')?.style.display==='flex') renderContactar();
+  toast(`${c.n} eliminado`, 'Candidato borrado permanentemente', 'wrn', '🗑');
+}
+
 function afterEdit(id,prev,newEst){
   buildSidebar();
   if(DISC_S.has(newEst)&&!DISC_S.has(prev)) toast(`${cands.find(x=>x.id===id)?.n} descartado`,'Regresó al historial','wrn','↩');
@@ -1385,13 +1466,15 @@ async function saveCand(){
     pid, n, l:document.getElementById('f-l').value.trim(),
     s:document.getElementById('f-se').value, stack:st,
     emp:document.getElementById('f-em').value.trim(),
-    sit:'', est:'Contactado', mo:'',
+    // sit='' → sin decisión, pendiente de revisión por recruiter
+    // est='Por contactar' → etapa inicial, antes de cualquier acción
+    sit:'', est:'Por contactar', mo:'',
     src:document.getElementById('f-so').value.trim()||CU.name,
-    rec:document.getElementById('f-rc').value, fb:'',
+    rec:document.getElementById('f-rc').value.trim(), fb:'',
     eq:document.getElementById('f-eq').value.trim(),
     cv:document.getElementById('f-cv')?.value.trim()||'',
     sal:'', dt:today,
-    dates:{Contactado:today}
+    dates:{'Por contactar':today}
   };
 
   setSyncStatus('loading');
