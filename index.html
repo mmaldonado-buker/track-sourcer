@@ -211,6 +211,10 @@
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="16" r="1" fill="currentColor"/></svg>
         Mi día <span class="nb" id="nb-today">0</span>
       </button>
+      <button class="ni" onclick="nav('metrics')" id="ni-metrics">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M6 8l3 3 3-3 3 3 3-3"/></svg>
+        Métricas sourcing
+      </button>
       <button class="ni" onclick="nav('analytics')" id="ni-analytics">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         Analytics IA
@@ -327,6 +331,17 @@
     <div id="v-kanban" style="display:none;flex-direction:column;flex:1;overflow:hidden">
       <div class="topbar"><h1>Kanban — Pipeline Activo</h1></div>
       <div style="flex:1;overflow-y:auto;padding:16px"><div class="kb" id="kb-board"></div></div>
+    </div>
+
+    <div id="v-metrics" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+      <div class="topbar">
+        <h1>Métricas Sourcing</h1>
+        <div style="display:flex;gap:7px;align-items:center">
+          <button class="btn btn-sm" onclick="syncNow()">↻ Sync</button>
+          <button class="btn btn-p btn-sm" onclick="exportMetricsCSV()">↓ Exportar CSV</button>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px" id="metrics-body"></div>
     </div>
 
     <div id="v-analytics" style="display:none;flex-direction:column;flex:1;overflow:hidden">
