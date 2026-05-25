@@ -147,6 +147,10 @@
       <div class="fg h"><label>Recruiter a cargo</label><select id="f-rc"></select></div>
     </div>
     <div class="fg"><label>Pool de destino *</label><select id="f-po"></select></div>
+    <div class="fg">
+      <label>Link CV <span style="color:var(--txt3);font-weight:400">(Google Drive — opcional, se puede agregar después)</span></label>
+      <input type="url" id="f-cv" placeholder="https://drive.google.com/file/d/...">
+    </div>
     <div class="ma">
       <button class="btn" onclick="closeModal('mb-cand')">Cancelar</button>
       <button class="btn btn-p" id="btn-save-cand" onclick="saveCand()">Guardar candidato</button>
@@ -361,6 +365,17 @@
           </div>
           <div id="sheets-status-cfg" style="font-size:11px;color:var(--txt3)"></div>
 
+          <h2 style="font-size:13px;font-weight:600;margin:22px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Detección de estancados</h2>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);margin-bottom:12px">
+            <div>
+              <div style="font-size:13px;font-weight:500">Activar alertas de estancamiento</div>
+              <div style="font-size:11px;color:var(--txt3);margin-top:2px">Desactívalo mientras las fechas de la BD no sean confiables. No afecta ninguna otra función.</div>
+            </div>
+            <label style="position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;margin-left:16px">
+              <input type="checkbox" id="stale-toggle" style="opacity:0;width:0;height:0">
+              <span onclick="document.getElementById('stale-toggle').click()" style="position:absolute;cursor:pointer;inset:0;background:var(--border2);border-radius:22px;transition:.2s" id="stale-toggle-track"></span>
+            </label>
+          </div>
           <h2 style="font-size:13px;font-weight:600;margin:22px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Umbrales de alerta por estancamiento</h2>
           <div id="threshold-rows"></div>
           <button class="btn btn-p btn-sm" style="margin-top:10px" onclick="saveThresholds()">Guardar umbrales</button>
