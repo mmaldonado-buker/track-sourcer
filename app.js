@@ -846,7 +846,7 @@ function renderPool(){
   const tb=document.getElementById('pool-tb'); if(!tb) return;
   tb.innerHTML=cs.length?cs.map(c=>`
     <tr class="${isStale(c)?'stale':''}" onclick="openPanel(${c.id})">
-      <td><div class="tdn">${c.n}${isStale(c)?` <span style="color:var(--amber);font-size:10px">⚠</span>`:''}</div>${c.l?`<a class="tdl" href="${c.l}" target="_blank" onclick="event.stopPropagation()">↗ LinkedIn</a>`:''}</td>
+      <td><div class="tdn">${c.n}${isStale(c)?' <span style="color:var(--amber);font-size:10px">⚠</span>':''}</div>${c.l?'<a class="tdl" href="' + c.l + '" target="_blank" onclick="event.stopPropagation()">↗ LinkedIn</a>':''}</td>
       <td>${chips(c.stack)}</td>
       <td style="font-size:11px;color:var(--txt2)">${c.emp||'—'}</td>
       <td>${sitB(c.sit)}</td>
@@ -879,7 +879,7 @@ function renderPipeline(){
   const tb=document.getElementById('pipe-tb'); if(!tb) return;
   tb.innerHTML=cs.length?cs.map(c=>`
     <tr class="${isStale(c)?'stale':''}" onclick="openPanel(${c.id})">
-      <td><div class="tdn">${c.n}${isStale(c)?` <span style="color:var(--amber);font-size:10px">⚠</span>`:''}</div>${c.l?`<a class="tdl" href="${c.l}" target="_blank" onclick="event.stopPropagation()">↗</a>`:''}</td>
+      <td><div class="tdn">${c.n}${isStale(c)?' <span style="color:var(--amber);font-size:10px">⚠</span>':''}</div>${c.l?'<a class="tdl" href="' + c.l + '" target="_blank" onclick="event.stopPropagation()">↗</a>':''}</td>
       <td style="font-size:11px"><span style="width:6px;height:6px;border-radius:50%;background:${pcolor(c.pid)};display:inline-block;margin-right:4px"></span>${pname(c.pid)}</td>
       <td>${chips(c.stack)}</td>
       <td>${estB(c.est)}</td>
@@ -957,7 +957,7 @@ function renderReview(){
           <div style="flex:1;min-width:0">
             <div class="rev-name">${c.n}${staleWarn}</div>
             <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
-            ${c.fb ? `<div class="rev-fb">"${c.fb}"</div>` : ''}
+            ${c.fb ? '<div class="rev-fb">"' + c.fb + '"</div>' : ''}
             <div style="font-size:10px;color:var(--txt3);margin-top:3px">Recruiter: <strong style="color:var(--txt2)">${c.rec||'—'}</strong></div>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
@@ -965,7 +965,7 @@ function renderReview(){
             <button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver</button>
           </div>
         </div>
-        ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px;margin-bottom:8px;display:inline-flex">↗ LinkedIn</a>` : ''}
+        ${c.l ? '<a href="' + c.l + '" target="_blank" class="tdl" style="font-size:11px;margin-bottom:8px;display:inline-flex">↗ LinkedIn</a>' : ''}
         <div style="margin-top:8px">
           <button
             id="notif-btn-${c.id}"
@@ -985,14 +985,14 @@ function renderReview(){
         <div style="flex:1;min-width:0">
           <div class="rev-name">${c.n}${staleWarn}</div>
           <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
-          ${c.fb ? `<div class="rev-fb">"${c.fb}"</div>` : ''}
+          ${c.fb ? '<div class="rev-fb">"' + c.fb + '"</div>' : ''}
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
           ${estB(c.est)}
           <button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver detalle</button>
         </div>
       </div>
-      ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px;margin-bottom:8px;display:inline-flex">↗ LinkedIn</a>` : ''}
+      ${c.l ? '<a href="' + c.l + '" target="_blank" class="tdl" style="font-size:11px;margin-bottom:8px;display:inline-flex">↗ LinkedIn</a>' : ''}
       <div class="rev-actions">
         <textarea class="rev-comment" id="rev-fb-${c.id}" placeholder="Comentario (opcional antes de decidir)...">${c.fb||''}</textarea>
         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
@@ -1076,10 +1076,10 @@ function renderContactar(){
                 <div class="rev-name">${c.n}${urgency}</div>
                 <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
                 <div style="font-size:10px;color:var(--txt3);margin-top:2px">Pool: ${pname(c.pid)} · Eq: ${c.eq||'—'}</div>
-                ${c.fb ? `<div class="rev-fb">"${c.fb}"</div>` : ''}
+                ${c.fb ? '<div class="rev-fb">"' + c.fb + '"</div>' : ''}
               </div>
               <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
-                ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px" onclick="event.stopPropagation()">↗ LinkedIn</a>` : ''}
+                ${c.l ? '<a href="' + c.l + '" target="_blank" class="tdl" style="font-size:11px" onclick="event.stopPropagation()">↗ LinkedIn</a>' : ''}
                 <button class="btn btn-sm btn-ghost" onclick="openPanel(${c.id})">Ver detalle</button>
               </div>
             </div>
@@ -1154,8 +1154,8 @@ function openPanel(id){
     const d=c.dates?.[s], days=daysSince(d), thresh=thresholds[s]||10;
     const isCur=c.est===s, isDone=STAGES.indexOf(s)<STAGES.indexOf(c.est)||disc;
     return `<div class="tl-item"><div class="tl-dot ${isCur?'cur':isDone?'done':'empty'}"></div>
-      <div style="flex:1"><span class="tl-stage">${s}</span> ${d?`<span class="tl-date">${fmtDate(d)}</span>`:''} ${isCur&&days!==null?daysLabel(days,thresh):''}</div></div>`;
-  }).join('')}${disc?`<div class="tl-item"><div class="tl-dot" style="background:var(--red)"></div><div><span class="tl-stage" style="color:var(--red)">${c.est}</span> <span class="tl-date">${fmtDate(c.dates?.[c.est])}</span></div></div>`:''}</div>`;
+      <div style="flex:1"><span class="tl-stage">${s}</span> ${d?'<span class="tl-date">' + fmtDate(d) + '</span>':''} ${isCur&&days!==null?daysLabel(days,thresh):''}</div></div>`;
+  }).join('')}${disc?'<div class="tl-item"><div class="tl-dot" style="background:var(--red)"></div><div><span class="tl-stage" style="color:var(--red)">' + c.est + '</span> <span class="tl-date">' + fmtDate(c.dates?.[c.est]) + '</span></div></div>':''}</div>`;
   
   let editHTML='';
   if(HAT==='viewer' || !editable) editHTML=`<div class="psec"><div style="font-size:11px;color:var(--txt3);padding:8px 10px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2)">Solo lectura para este candidato.</div></div>`;
@@ -1177,11 +1177,11 @@ function openPanel(id){
     </div>
     ${c.l || c.cv ? `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      ${c.l ? `<a href="${c.l}" target="_blank" class="btn btn-sm btn-ghost" style="font-size:11px;text-decoration:none">↗ LinkedIn</a>` : ''}
-      ${c.cv ? `<a href="${c.cv}" target="_blank" class="btn btn-sm" style="font-size:11px;text-decoration:none;background:var(--gbg);border-color:var(--gborder);color:var(--green)">📄 Ver CV</a>` : ''}
+      ${c.l ? '<a href="' + c.l + '" target="_blank" class="btn btn-sm btn-ghost" style="font-size:11px;text-decoration:none">↗ LinkedIn</a>' : ''}
+      ${c.cv ? '<a href="' + c.cv + '" target="_blank" class="btn btn-sm" style="font-size:11px;text-decoration:none;background:var(--gbg);border-color:var(--gborder);color:var(--green)">📄 Ver CV</a>' : ''}
     </div>` : ''}
-    ${stale?`<div style="background:var(--abg);border:1px solid var(--aborder);border-radius:var(--r);padding:8px 11px;margin-bottom:12px;font-size:12px;color:var(--amber)">⚠ <strong>Candidato estancado</strong> — ${daysInStage(c)} días en ${c.est} (umbral: ${thresholds[c.est]||10}d)<br><button class="btn btn-amber btn-sm" style="margin-top:6px" onclick="openEmailModal(${c.id})">📧 Generar notificación</button></div>`:''}
-    <div class="psec"><div class="pst">Pipeline</div>${pSteps(c)}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${sitB(c.sit)} ${estB(c.est)}${c.mo?` <span class="badge" style="background:var(--bg4);color:var(--txt3)">${c.mo}</span>`:''}</div></div>
+    ${stale?'<div style="background:var(--abg);border:1px solid var(--aborder);border-radius:var(--r);padding:8px 11px;margin-bottom:12px;font-size:12px;color:var(--amber)">⚠ <strong>Candidato estancado</strong> — ' + daysInStage(c) + ' días en ' + c.est + ' (umbral: ' + thresholds[c.est]||10 + 'd)<br><button class="btn btn-amber btn-sm" style="margin-top:6px" onclick="openEmailModal(' + c.id + ')">📧 Generar notificación</button></div>':''}
+    <div class="psec"><div class="pst">Pipeline</div>${pSteps(c)}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${sitB(c.sit)} ${estB(c.est)}${c.mo?' <span class="badge" style="background:var(--bg4);color:var(--txt3)">' + c.mo + '</span>':''}</div></div>
     <div class="psec"><div class="pst">Historial de fechas</div>${timelineHTML}</div>
     <div class="psec"><div class="pst">Detalle</div>
       <div class="pr"><span class="prl">Stack</span><span>${chips(c.stack)}</span></div>
@@ -1195,9 +1195,9 @@ function openPanel(id){
         : '<em style="color:var(--txt3)">Sin CV adjunto</em>'
       }</span></div>
     </div>
-    ${c.fb?`<div class="psec"><div class="pst">Feedback</div><div class="pfb">"${c.fb}"</div></div>`:''}
+    ${c.fb?'<div class="psec"><div class="pst">Feedback</div><div class="pfb">"' + c.fb + '"</div></div>':''}
     ${editHTML}
-    ${API_KEY?`<div class="aib"><div class="ait">✦ Análisis IA (Gemini)</div><div id="aio-${c.id}" class="aio" style="color:var(--txt3)">Haz clic para analizar con Google Gemini.</div><button class="btn btn-sm" style="margin-top:7px;width:100%;justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="aiCand(${c.id})">✦ Analizar</button></div>`:''}`;
+    ${API_KEY?'<div class="aib"><div class="ait">✦ Análisis IA (Gemini)</div><div id="aio-' + c.id + '" class="aio" style="color:var(--txt3)">Haz clic para analizar con Google Gemini.</div><button class="btn btn-sm" style="margin-top:7px;width:100%;justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="aiCand(' + c.id + ')">✦ Analizar</button></div>':''}`;
   document.getElementById('panel').classList.add('open');
 }
 function closePanel(){ document.getElementById('panel').classList.remove('open'); }
@@ -1208,12 +1208,12 @@ function ownerForm(c,salOk,disc){
     <label style="color:var(--p2); font-weight:600;">Pool / Categoría del Candidato</label>
     <select id="u-po" style="margin-bottom:12px; border-color:var(--pborder); background:var(--bg3);">${poolOptions}</select>
     <label>Estado pipeline</label>
-    <select id="u-est">${[...STAGES,'Descartado','No interesado'].map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}</select>
+    <select id="u-est">${[...STAGES,'Descartado','No interesado'].map(s=>'<option ' + s===c.est?'selected':'' + '>' + s + '</option>').join('')}</select>
     <label>Situación</label>
-    <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>`<option ${s===c.sit?'selected':''}>${s}</option>`).join('')}</select>
+    <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>'<option ' + s===c.sit?'selected':'' + '>' + s + '</option>').join('')}</select>
     <label>Equipo sugerido (texto libre)</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
-    ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
+    ${salOk?'<label>Rango salarial</label><input type="text" id="u-sal" value="' + c.sal||'' + '" placeholder="Expectativa salarial">':
     `<div class="ro">Rango salarial — disponible desde Screening</div>`}
     <label>Feedback</label>
     <textarea id="u-fb">${c.fb||''}</textarea>
@@ -1238,7 +1238,7 @@ function ownerForm(c,salOk,disc){
     <input type="url" id="u-cv" value="${c.cv||''}" placeholder="https://drive.google.com/file/d/...">
     <div style="display:flex;gap:6px">
       <button class="btn btn-p btn-sm" style="flex:1;justify-content:center" onclick="saveUpdate(${c.id},'owner')">Guardar</button>
-      ${!disc?`<button class="btn btn-danger btn-sm" onclick="discardC(${c.id})">Descartar</button>`:''}
+      ${!disc?'<button class="btn btn-danger btn-sm" onclick="discardC(' + c.id + ')">Descartar</button>':''}
     </div>
   </div></div>`;
 }
@@ -1254,7 +1254,7 @@ function recruiterForm(c){
       Candidato rechazado — no avanzará en el proceso.
     </div>`}
     <label>Decisión</label>
-    <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>`<option ${s===c.sit?'selected':''}>${s}</option>`).join('')}</select>
+    <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>'<option ' + s===c.sit?'selected':'' + '>' + s + '</option>').join('')}</select>
     <label>Comentarios</label>
     <textarea id="u-fb" placeholder="Justificación o notas para el sourcer...">${c.fb||''}</textarea>
     <button class="btn btn-p btn-sm" style="width:100%;justify-content:center" onclick="saveUpdate(${c.id},'recruiter')">Guardar decisión</button>
@@ -1293,20 +1293,20 @@ function sourcerForm(c,salOk){
     </div>`}
     <label>Estado pipeline</label>
     <select id="u-est" ${(isRejected || needsApproval)?'disabled':''}>
-      ${stagesAllowed.map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}
+      ${stagesAllowed.map(s=>'<option ' + s===c.est?'selected':'' + '>' + s + '</option>').join('')}
     </select>
-    ${needsApproval?`<div style="font-size:10px;color:var(--txt3);margin-top:-4px;margin-bottom:8px">El estado cambia cuando el recruiter apruebe o se desactive la ZDP.</div>`:''}
+    ${needsApproval?'<div style="font-size:10px;color:var(--txt3);margin-top:-4px;margin-bottom:8px">El estado cambia cuando el recruiter apruebe o se desactive la ZDP.</div>':''}
     <label>Equipo sugerido</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
-    ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
+    ${salOk?'<label>Rango salarial</label><input type="text" id="u-sal" value="' + c.sal||'' + '" placeholder="Expectativa salarial">':
     `<div class="ro">Rango salarial — desde Screening</div>`}
     <label>Feedback / Notas</label><textarea id="u-fb">${c.fb||''}</textarea>
     <label>Link CV <span style="color:var(--txt3);font-weight:400">(Google Drive)</span></label>
     <input type="url" id="u-cv" value="${c.cv||''}" placeholder="https://drive.google.com/file/d/...">
     <div style="display:flex;gap:6px;flex-direction:column">
       <button class="btn btn-p btn-sm" style="justify-content:center" onclick="saveUpdate(${c.id},'sourcer')">Guardar notas / CV</button>
-      ${isReadyToCall?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--p);color:var(--p2)" onclick="marcarContactado(${c.id})">📬 Marcar como Contactado</button>`:''}
-      ${needsApproval?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="sendNotifToRecruiter(${c.id})" id="notif-btn-${c.id}">🔔 Notificar al recruiter</button>`:''}
+      ${isReadyToCall?'<button class="btn btn-sm" style="justify-content:center;border-color:var(--p);color:var(--p2)" onclick="marcarContactado(' + c.id + ')">📬 Marcar como Contactado</button>':''}
+      ${needsApproval?'<button class="btn btn-sm" style="justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="sendNotifToRecruiter(' + c.id + ')" id="notif-btn-' + c.id + '">🔔 Notificar al recruiter</button>':''}
     </div>
   </div></div>`;
 
@@ -1803,15 +1803,15 @@ function renderAnalytics(){
     <div class="ag">
       <div class="ac"><h3>Por pool</h3>${byPool.map(({p,n})=>`<div class="sr"><span style="display:flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:${p.color};display:inline-block"></span>${p.name}</span><span class="sv">${n}</span></div>`).join('')}</div>
       <div class="ac"><h3>Promedio días por etapa</h3>${avgDays.map(({s,avg})=>`<div class="sr"><span>${s}</span><span class="sv ${avg!==null&&avg>=(thresholds[s]||10)?'mv-r':''}">${avg!==null?avg+'d':'—'}</span></div>`).join('')}</div>
-      <div class="ac"><h3>Top motivos de descarte</h3>${topM.map(([k,v])=>`<div class="sr"><span>${k}</span><span class="sv mv-r">${v}</span></div>`).join('')}${!topM.length?'<p style="font-size:11px;color:var(--txt3)">Sin datos aún</p>':''}</div>
-      <div class="ac"><h3>Stacks más frecuentes</h3>${topS.map(([k,v],i)=>`<div class="br-row"><div class="br-label">${k}</div><div class="br-track"><div class="br-fill" style="width:${Math.max(v/mx*100,4)}%;background:${clrs[i]}22;color:${clrs[i]}">${v}</div></div></div>`).join('')}</div>
+      <div class="ac"><h3>Top motivos de descarte</h3>${topM.map(([k,v])=>'<div class="sr"><span>' + k + '</span><span class="sv mv-r">' + v + '</span></div>').join('')}${!topM.length?'<p style="font-size:11px;color:var(--txt3)">Sin datos aún</p>':''}</div>
+      <div class="ac"><h3>Stacks más frecuentes</h3>${topS.map(([k,v],i)=>'<div class="br-row"><div class="br-label">' + k + '</div><div class="br-track"><div class="br-fill" style="width:' + Math.max(v/mx*100,4) + '%;background:' + clrs[i] + '22;color:' + clrs[i] + '">' + v + '</div></div></div>').join('')}</div>
       <div class="ac"><h3>Estado actual</h3>
         <div class="sr"><span>Total</span><span class="sv">${all.length}</span></div>
         <div class="sr"><span>Pipeline activo</span><span class="sv mv-g">${all.filter(c=>isActiveInPipeline(c)).length}</span></div>
         <div class="sr"><span>Historial</span><span class="sv mv-r">${all.filter(c=>DISC_S.has(c.est)).length}</span></div>
         <div class="sr"><span style="color:var(--amber)">⚠ Estancados</span><span class="sv mv-r">${all.filter(c=>isStale(c)).length}</span></div>
       </div>
-      <div class="ac"><h3>Por sourcer</h3>${[...new Set(all.map(c=>c.src))].filter(Boolean).map(s=>`<div class="sr"><span>${s}</span><span class="sv">${all.filter(c=>c.src===s).length}</span></div>`).join('')}</div>
+      <div class="ac"><h3>Por sourcer</h3>${[...new Set(all.map(c=>c.src))].filter(Boolean).map(s=>'<div class="sr"><span>' + s + '</span><span class="sv">' + all.filter(c=>c.src===s).length + '</span></div>').join('')}</div>
     </div>
     <div id="deep-box" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:14px">
       <div class="ait" style="margin-bottom:9px">✦ Análisis profundo IA (Gemini Pro)</div>
@@ -1916,7 +1916,7 @@ function renderStale(){
             <div style="flex:1;min-width:0">
               <div class="rev-name">${c.n} <span style="color:var(--amber);font-size:11px;font-family:var(--mono)">${daysInStage(c)}d</span></div>
               <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
-              ${c.fb?`<div class="rev-fb">"${c.fb}"</div>`:''}
+              ${c.fb?'<div class="rev-fb">"' + c.fb + '"</div>':''}
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
               <span style="font-size:10px;color:var(--txt3)">${c.rec||'—'}</span>
@@ -2268,7 +2268,7 @@ function toast(title,msg,type='inf',icon='ℹ'){
   const c=document.getElementById('toasts'); if(!c) return;
   const el=document.createElement('div');
   el.className=`toast ${type}`;
-  el.innerHTML=`<div class="ti">${icon}</div><div><div class="tt">${title}</div>${msg?`<div class="tm">${msg}</div>`:''}</div>`;
+  el.innerHTML='<div class="ti">' + icon + '</div><div><div class="tt">' + title + '</div>${msg?'<div class="tm">${msg}</div>':''}</div>';
   c.appendChild(el);
   setTimeout(()=>{el.style.opacity='0';el.style.transform='translateX(300px)';el.style.transition='all .25s';setTimeout(()=>el.remove(),250);},5000);
 }
