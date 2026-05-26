@@ -1966,187 +1966,174 @@ function renderToday(){
 // ── Mi Día: SOURCER ──────────────────────────────────────────
 function renderTodaySourcer(tb) {
   const porContactar  = getContactarCands();
-  // Pendientes de validación: candidatos que este sourcer agregó y aún no tienen aprobación
   const porValidar    = cands.filter(c =>
     canSeeCandidate(c) &&
     (c.sit === 'Por validar' || !c.sit || c.sit === '') &&
-    !DISC_S.has(c.est) &&
-    c.sit !== 'Rechazado'
+    !DISC_S.has(c.est) && c.sit !== 'Rechazado'
   );
-  const enProceso     = cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)&&c.est!=='Por contactar');
+  const enProceso = cands.filter(c => canSeeCandidate(c) && isActiveInPipeline(c) && c.est !== 'Por contactar');
 
   const nbToday = document.getElementById('nb-today');
   if(nbToday) nbToday.textContent = porContactar.length + porValidar.length;
 
-  const mkContactarCard = (c) => `
-    <div class="today-card today-card-action" onclick="openPanel(${c.id})">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
-        <div style="min-width:0;flex:1">
-          <div class="rev-name" style="font-size:12px">${c.n}</div>
-          <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'}</div>
-          <div style="font-size:10px;color:var(--p2);margin-top:2px">${c.stack}</div>
-        </div>
-        ${c.l?`<a href="${c.l}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:var(--p2);flex-shrink:0">↗ LI</a>`:''}
-      </div>
-      <button class="btn btn-p btn-sm" style="width:100%;justify-content:center;margin-top:8px" onclick="event.stopPropagation();marcarContactado(${c.id})">
-        📬 Marcar Contactado
-      </button>
-    </div>`;
+  function mkContactarCard(c) {
+    var liLink = c.l ? '<a href="' + c.l + '" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:var(--p2);flex-shrink:0">↗ LI</a>' : '';
+    return '<div class="today-card today-card-action" onclick="openPanel(' + c.id + ')">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">'
+      + '<div style="min-width:0;flex:1">'
+      + '<div class="rev-name" style="font-size:12px">' + c.n + '</div>'
+      + '<div class="rev-meta">' + (c.emp||'—') + ' · ' + (c.s||'?') + '</div>'
+      + '<div style="font-size:10px;color:var(--p2);margin-top:2px">' + (c.stack||'') + '</div>'
+      + '</div>' + liLink + '</div>'
+      + '<button class="btn btn-p btn-sm" style="width:100%;justify-content:center;margin-top:8px" onclick="event.stopPropagation();marcarContactado(' + c.id + ')">📬 Marcar Contactado</button>'
+      + '</div>';
+  }
 
-  const mkValidarCard = (c) => `
-    <div class="today-card" onclick="openPanel(${c.id})" style="border-color:var(--aborder)">
-      <div class="rev-name" style="font-size:12px">${c.n}</div>
-      <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'}</div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
-        ${estB(c.est)}
-        <button class="btn btn-sm" style="font-size:10px;padding:2px 7px;border-color:var(--pborder);color:var(--p2)" onclick="event.stopPropagation();sendNotifToRecruiter(${c.id})" id="notif-btn-${c.id}">🔔</button>
-      </div>
-    </div>`;
+  function mkValidarCard(c) {
+    return '<div class="today-card" onclick="openPanel(' + c.id + ')" style="border-color:var(--aborder)">'
+      + '<div class="rev-name" style="font-size:12px">' + c.n + '</div>'
+      + '<div class="rev-meta">' + (c.emp||'—') + ' · ' + (c.s||'?') + '</div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">'
+      + estB(c.est)
+      + '<button class="btn btn-sm" style="font-size:10px;padding:2px 7px;border-color:var(--pborder);color:var(--p2)" onclick="event.stopPropagation();sendNotifToRecruiter(' + c.id + ')" id="notif-btn-' + c.id + '">🔔</button>'
+      + '</div></div>';
+  }
 
-  // Kanban de en proceso
-  const kanbanStages = ['Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias'];
-  const stageColors  = {'Contactado':'#5b9cf0','Screening':'#9d91f5','Entrevista TR':'#a78bfa','Entrevista EM':'#e06cc0','Misión':'#f0a940','Referencias':'#2dd4a0'};
-  const kanbanHTML = kanbanStages.map(stage => {
-    const cards = enProceso.filter(c=>normalizeEst(c.est)===stage);
-    if(!cards.length) return '';
-    return `<div class="today-kanban-col">
-      <div class="today-kanban-header" style="color:${stageColors[stage]||'var(--txt2)'}">
-        ${stage} <span class="nb" style="background:${stageColors[stage]+'22'};color:${stageColors[stage]}">${cards.length}</span>
-      </div>
-      ${cards.map(c=>`
-        <div class="today-kanban-card ${isStale(c)?'stale-card-k':''}" onclick="openPanel(${c.id})">
-          <div style="font-size:12px;font-weight:500">${c.n}${isStale(c)?` <span style="color:var(--amber)">⚠</span>`:''}</div>
-          <div style="font-size:10px;color:var(--txt3)">${c.emp||'—'} · ${daysInStage(c)??'—'}d</div>
-          <div style="margin-top:3px">${chips(c.stack)}</div>
-        </div>`).join('')}
-    </div>`;
-  }).join('');
+  var kanbanStages = ['Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias'];
+  var stageColors  = {'Contactado':'#5b9cf0','Screening':'#9d91f5','Entrevista TR':'#a78bfa','Entrevista EM':'#e06cc0','Misión':'#f0a940','Referencias':'#2dd4a0'};
 
-  tb.innerHTML = `
-    <div class="today-grid-sourcer">
-      <div class="today-box" style="border-color:var(--pborder)">
-        <div class="today-box-title" style="color:var(--p2)">📬 Por contactar <span class="nb live">${porContactar.length}</span></div>
-        ${porContactar.length
-          ? porContactar.map(mkContactarCard).join('')
-          : `<div class="today-empty">Sin candidatos por contactar</div>`}
-      </div>
-      <div class="today-box" style="border-color:var(--aborder)">
-        <div class="today-box-title" style="color:var(--amber)">⏳ Pendientes de validación <span class="nb warn">${porValidar.length}</span></div>
-        ${porValidar.length
-          ? porValidar.map(mkValidarCard).join('')
-          : `<div class="today-empty">Sin pendientes — ¡al día!</div>`}
-      </div>
-    </div>
-    <div class="today-box today-box-wide" style="margin-top:14px">
-      <div class="today-box-title">🔄 Mis candidatos en proceso <span class="nb">${enProceso.length}</span></div>
-      ${enProceso.length
-        ? `<div class="today-kanban">${kanbanHTML||'<div class="today-empty">Sin candidatos en proceso aún</div>'}</div>`
-        : `<div class="today-empty">Sin candidatos en proceso aún</div>`}
-    </div>
-  `;
+  var kanbanHTML = '';
+  kanbanStages.forEach(function(stage) {
+    var cards = enProceso.filter(function(c){ return normalizeEst(c.est) === stage; });
+    if(!cards.length) return;
+    var cardHTML = cards.map(function(c) {
+      return '<div class="today-kanban-card' + (isStale(c)?' stale-card-k':'') + '" onclick="openPanel(' + c.id + ')">'
+        + '<div style="font-size:12px;font-weight:500">' + c.n + (isStale(c)?' <span style="color:var(--amber)">⚠</span>':'') + '</div>'
+        + '<div style="font-size:10px;color:var(--txt3)">' + (c.emp||'—') + ' · ' + (daysInStage(c)||'—') + 'd</div>'
+        + '<div style="margin-top:3px">' + chips(c.stack) + '</div>'
+        + '</div>';
+    }).join('');
+    kanbanHTML += '<div class="today-kanban-col">'
+      + '<div class="today-kanban-header" style="color:' + (stageColors[stage]||'var(--txt2)') + '">'
+      + stage + ' <span class="nb">' + cards.length + '</span>'
+      + '</div>' + cardHTML + '</div>';
+  });
+
+  var leftBox = '<div class="today-box" style="border-color:var(--pborder)">'
+    + '<div class="today-box-title" style="color:var(--p2)">📬 Por contactar <span class="nb live">' + porContactar.length + '</span></div>'
+    + (porContactar.length ? porContactar.map(mkContactarCard).join('') : '<div class="today-empty">Sin candidatos por contactar</div>')
+    + '</div>';
+
+  var rightBox = '<div class="today-box" style="border-color:var(--aborder)">'
+    + '<div class="today-box-title" style="color:var(--amber)">⏳ Pendientes de validación <span class="nb warn">' + porValidar.length + '</span></div>'
+    + (porValidar.length ? porValidar.map(mkValidarCard).join('') : '<div class="today-empty">Sin pendientes — ¡al día!</div>')
+    + '</div>';
+
+  var bottomBox = '<div class="today-box today-box-wide" style="margin-top:14px">'
+    + '<div class="today-box-title">🔄 Mis candidatos en proceso <span class="nb">' + enProceso.length + '</span></div>'
+    + (enProceso.length ? '<div class="today-kanban">' + (kanbanHTML || '<div class="today-empty">Sin candidatos en proceso</div>') + '</div>' : '<div class="today-empty">Sin candidatos en proceso aún</div>')
+    + '</div>';
+
+  tb.innerHTML = '<div class="today-grid-sourcer">' + leftBox + rightBox + '</div>' + bottomBox;
 }
 
-// ── Mi Día: RECRUITER ────────────────────────────────────────
 function renderTodayRecruiter(tb) {
-  // Pendientes de validar: candidatos asignados a este recruiter sin decisión aún
-  const porValidar   = cands.filter(c =>
-    canSeeCandidate(c) &&
-    (c.sit === 'Por validar' || !c.sit || c.sit === '') &&
-    !DISC_S.has(c.est) &&
-    c.sit !== 'Rechazado'
-  );
-  const sinFeedback  = getPendingFeedbackCands();
-  const enProceso    = cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)&&c.est!=='Por contactar'&&c.est!=='En pool');
+  var porValidar = cands.filter(function(c) {
+    return canSeeCandidate(c) &&
+      (c.sit === 'Por validar' || !c.sit || c.sit === '') &&
+      !DISC_S.has(c.est) && c.sit !== 'Rechazado';
+  });
+  var sinFeedback = getPendingFeedbackCands();
+  var enProceso   = cands.filter(function(c) {
+    return canSeeCandidate(c) && isActiveInPipeline(c) && c.est !== 'Por contactar' && c.est !== 'En pool';
+  });
 
-  const nbToday = document.getElementById('nb-today');
+  var nbToday = document.getElementById('nb-today');
   if(nbToday) nbToday.textContent = porValidar.length + sinFeedback.length;
 
-  const mkValidarCard = (c) => `
-    <div class="today-card" onclick="openPanel(${c.id})">
-      <div class="rev-name" style="font-size:12px">${c.n}</div>
-      <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · ${c.stack}</div>
-      <div style="font-size:10px;color:var(--txt3);margin-top:3px">Sourcer: ${c.src||'—'}</div>
-      <div style="display:flex;gap:5px;margin-top:8px" onclick="event.stopPropagation()">
-        <button class="btn btn-green btn-sm" style="flex:1;justify-content:center;font-size:10px" onclick="reviewAction(${c.id},'approve')">✓ Aprobar</button>
-        <button class="btn btn-danger btn-sm" style="font-size:10px" onclick="reviewAction(${c.id},'reject')">✕</button>
-      </div>
-    </div>`;
+  function mkValidarCard(c) {
+    return '<div class="today-card" onclick="openPanel(' + c.id + ')">'
+      + '<div class="rev-name" style="font-size:12px">' + c.n + '</div>'
+      + '<div class="rev-meta">' + (c.emp||'—') + ' · ' + (c.s||'?') + ' · ' + (c.stack||'') + '</div>'
+      + '<div style="font-size:10px;color:var(--txt3);margin-top:3px">Sourcer: ' + (c.src||'—') + '</div>'
+      + '<div style="display:flex;gap:5px;margin-top:8px" onclick="event.stopPropagation()">'
+      + '<button class="btn btn-green btn-sm" style="flex:1;justify-content:center;font-size:10px" onclick="reviewAction(' + c.id + ',\'approve\')">✓ Aprobar</button>'
+      + '<button class="btn btn-danger btn-sm" style="font-size:10px" onclick="reviewAction(' + c.id + ',\'reject\')">✕</button>'
+      + '</div></div>';
+  }
 
-  const mkFeedbackCard = (c) => `
-    <div class="today-card" onclick="openPanel(${c.id})" style="border-color:var(--bborder)">
-      <div class="rev-name" style="font-size:12px">${c.n}</div>
-      <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'}</div>
-      <div style="margin-top:4px">${estB(c.est)}</div>
-    </div>`;
+  function mkFeedbackCard(c) {
+    return '<div class="today-card" onclick="openPanel(' + c.id + ')" style="border-color:var(--bborder)">'
+      + '<div class="rev-name" style="font-size:12px">' + c.n + '</div>'
+      + '<div class="rev-meta">' + (c.emp||'—') + ' · ' + (c.s||'?') + '</div>'
+      + '<div style="margin-top:4px">' + estB(c.est) + '</div>'
+      + '</div>';
+  }
 
-  const kanbanStages = ['Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias'];
-  const stageColors  = {'Contactado':'#5b9cf0','Screening':'#9d91f5','Entrevista TR':'#a78bfa','Entrevista EM':'#e06cc0','Misión':'#f0a940','Referencias':'#2dd4a0'};
-  const kanbanHTML = kanbanStages.map(stage => {
-    const cards = enProceso.filter(c=>normalizeEst(c.est)===stage);
-    if(!cards.length) return '';
-    return `<div class="today-kanban-col">
-      <div class="today-kanban-header" style="color:${stageColors[stage]||'var(--txt2)'}">
-        ${stage} <span class="nb">${cards.length}</span>
-      </div>
-      ${cards.map(c=>`
-        <div class="today-kanban-card ${isStale(c)?'stale-card-k':''}" onclick="openPanel(${c.id})">
-          <div style="font-size:12px;font-weight:500">${c.n}</div>
-          <div style="font-size:10px;color:var(--txt3)">${c.src||'—'} · ${daysInStage(c)??'—'}d</div>
-        </div>`).join('')}
-    </div>`;
-  }).join('');
+  var kanbanStages = ['Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias'];
+  var stageColors  = {'Contactado':'#5b9cf0','Screening':'#9d91f5','Entrevista TR':'#a78bfa','Entrevista EM':'#e06cc0','Misión':'#f0a940','Referencias':'#2dd4a0'};
 
-  tb.innerHTML = `
-    <div class="today-grid-recruiter">
-      <div class="today-box" style="border-color:var(--aborder)">
-        <div class="today-box-title" style="color:var(--amber)">⏳ Por validar <span class="nb warn">${porValidar.length}</span></div>
-        ${porValidar.length
-          ? porValidar.map(mkValidarCard).join('')
-          : `<div class="today-empty">Sin perfiles por validar</div>`}
-      </div>
-      <div class="today-box" style="border-color:var(--bborder)">
-        <div class="today-box-title" style="color:var(--blue)">💬 Sin feedback post-entrevista <span class="nb" style="background:var(--bbg);color:var(--blue)">${sinFeedback.length}</span></div>
-        <div style="font-size:10px;color:var(--txt3);margin-bottom:8px">Candidatos que pasaron entrevista TR y aún no tienen feedback</div>
-        ${sinFeedback.length
-          ? sinFeedback.map(mkFeedbackCard).join('')
-          : `<div class="today-empty">Sin pendientes de feedback 🎉</div>`}
-      </div>
-    </div>
-    <div class="today-box today-box-wide" style="margin-top:14px">
-      <div class="today-box-title">🔄 Mis candidatos en proceso <span class="nb">${enProceso.length}</span></div>
-      ${enProceso.length
-        ? `<div class="today-kanban">${kanbanHTML||'<div class="today-empty">Sin candidatos aún</div>'}</div>`
-        : `<div class="today-empty">Sin candidatos en proceso aún</div>`}
-    </div>
-  `;
+  var kanbanHTML = '';
+  kanbanStages.forEach(function(stage) {
+    var cards = enProceso.filter(function(c){ return normalizeEst(c.est) === stage; });
+    if(!cards.length) return;
+    var cardHTML = cards.map(function(c) {
+      return '<div class="today-kanban-card' + (isStale(c)?' stale-card-k':'') + '" onclick="openPanel(' + c.id + ')">'
+        + '<div style="font-size:12px;font-weight:500">' + c.n + '</div>'
+        + '<div style="font-size:10px;color:var(--txt3)">' + (c.src||'—') + ' · ' + (daysInStage(c)||'—') + 'd</div>'
+        + '</div>';
+    }).join('');
+    kanbanHTML += '<div class="today-kanban-col">'
+      + '<div class="today-kanban-header" style="color:' + (stageColors[stage]||'var(--txt2)') + '">'
+      + stage + ' <span class="nb">' + cards.length + '</span>'
+      + '</div>' + cardHTML + '</div>';
+  });
+
+  var leftBox = '<div class="today-box" style="border-color:var(--aborder)">'
+    + '<div class="today-box-title" style="color:var(--amber)">⏳ Por validar <span class="nb warn">' + porValidar.length + '</span></div>'
+    + (porValidar.length ? porValidar.map(mkValidarCard).join('') : '<div class="today-empty">Sin perfiles por validar</div>')
+    + '</div>';
+
+  var rightBox = '<div class="today-box" style="border-color:var(--bborder)">'
+    + '<div class="today-box-title" style="color:var(--blue)">💬 Sin feedback — Entrevista TR <span class="nb" style="background:var(--bbg);color:var(--blue)">' + sinFeedback.length + '</span></div>'
+    + '<div style="font-size:10px;color:var(--txt3);margin-bottom:8px">Candidatos en Entrevista TR sin comentarios</div>'
+    + (sinFeedback.length ? sinFeedback.map(mkFeedbackCard).join('') : '<div class="today-empty">Sin pendientes de feedback 🎉</div>')
+    + '</div>';
+
+  var bottomBox = '<div class="today-box today-box-wide" style="margin-top:14px">'
+    + '<div class="today-box-title">🔄 Mis candidatos en proceso <span class="nb">' + enProceso.length + '</span></div>'
+    + (enProceso.length ? '<div class="today-kanban">' + (kanbanHTML || '<div class="today-empty">Sin candidatos aún</div>') + '</div>' : '<div class="today-empty">Sin candidatos en proceso aún</div>')
+    + '</div>';
+
+  tb.innerHTML = '<div class="today-grid-recruiter">' + leftBox + rightBox + '</div>' + bottomBox;
 }
 
-// ── Mi Día: OWNER / SUPERVISOR / VIEWER ─────────────────────
 function renderTodayDefault(tb) {
-  const all = cands.filter(c=>canSeeCandidate(c));
-  const stale = all.filter(c=>isStale(c));
-  const sinFeedback = getPendingFeedbackCands();
-  const porValidar = getReviewCands();
-  const nbToday = document.getElementById('nb-today');
+  var all = cands.filter(function(c){ return canSeeCandidate(c); });
+  var stale = all.filter(function(c){ return isStale(c); });
+  var sinFeedback = getPendingFeedbackCands();
+  var porValidar = getReviewCands();
+  var nbToday = document.getElementById('nb-today');
   if(nbToday) nbToday.textContent = stale.length + porValidar.length;
 
-  tb.innerHTML = `
-    <div class="mg" style="margin-bottom:16px">
-      <div class="mc"><div class="mcl">Por validar</div><div class="mcv mv-a">${porValidar.length}</div></div>
-      <div class="mc"><div class="mcl">Sin feedback</div><div class="mcv" style="color:var(--blue)">${sinFeedback.length}</div></div>
-      <div class="mc"><div class="mcl">Estancados</div><div class="mcv mv-r">${stale.length}</div></div>
-      <div class="mc"><div class="mcl">En pipeline</div><div class="mcv mv-g">${all.filter(c=>isActiveInPipeline(c)).length}</div></div>
-    </div>
-    ${stale.length?`<div class="rev-section"><div class="rev-sec-title" style="color:var(--amber)">⚠ Estancados</div><div class="rev-list">
-      ${stale.slice(0,5).map(c=>`<div class="rev-card" onclick="openPanel(${c.id})" style="cursor:pointer">
-        <div class="rev-name">${c.n}</div>
-        <div class="rev-meta">${c.est} · ${daysInStage(c)}d · ${c.src||'—'}</div>
-      </div>`).join('')}
-    </div></div>`:''}
-  `;
+  var staleCards = stale.slice(0,5).map(function(c) {
+    return '<div class="rev-card" onclick="openPanel(' + c.id + ')" style="cursor:pointer">'
+      + '<div class="rev-name">' + c.n + '</div>'
+      + '<div class="rev-meta">' + c.est + ' · ' + (daysInStage(c)||'—') + 'd · ' + (c.src||'—') + '</div>'
+      + '</div>';
+  }).join('');
+
+  tb.innerHTML = '<div class="mg" style="margin-bottom:16px">'
+    + '<div class="mc"><div class="mcl">Por validar</div><div class="mcv mv-a">' + porValidar.length + '</div></div>'
+    + '<div class="mc"><div class="mcl">Sin feedback TR</div><div class="mcv" style="color:var(--blue)">' + sinFeedback.length + '</div></div>'
+    + '<div class="mc"><div class="mcl">Estancados</div><div class="mcv mv-r">' + stale.length + '</div></div>'
+    + '<div class="mc"><div class="mcl">En pipeline</div><div class="mcv mv-g">' + all.filter(function(c){return isActiveInPipeline(c);}).length + '</div></div>'
+    + '</div>'
+    + (stale.length ? '<div class="rev-section"><div class="rev-sec-title" style="color:var(--amber)">⚠ Estancados</div><div class="rev-list">' + staleCards + '</div></div>' : '');
 }
 
-function getTodayCands(){ return []; } // legacy — ya no se usa directamente
+function getTodayCands(){ return []; }
+
 
 function renderConfig(){
   // ── Toggle detección de estancados ──────────────────────
