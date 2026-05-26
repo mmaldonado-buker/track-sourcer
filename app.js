@@ -1309,7 +1309,7 @@ function sourcerForm(c,salOk){
       ${needsApproval?'<button class="btn btn-sm" style="justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="sendNotifToRecruiter(' + c.id + ')" id="notif-btn-' + c.id + '">🔔 Notificar al recruiter</button>':''}
     </div>
   </div></div>`;
-
+}
 
 async function autoCategorizarDescarte(idx) {
   const feedback = document.getElementById('u-fb').value;
@@ -2268,7 +2268,7 @@ function toast(title,msg,type='inf',icon='ℹ'){
   const c=document.getElementById('toasts'); if(!c) return;
   const el=document.createElement('div');
   el.className=`toast ${type}`;
-  el.innerHTML='<div class="ti">' + icon + '</div><div><div class="tt">' + title + '</div>${msg?'<div class="tm">${msg}</div>':''}</div>';
+  el.innerHTML='<div class="ti">' + icon + '</div><div><div class="tt">' + title + '</div>' + (msg ? '<div class="tm">'+msg+'</div>' : '') + '</div>';
   c.appendChild(el);
   setTimeout(()=>{el.style.opacity='0';el.style.transform='translateX(300px)';el.style.transition='all .25s';setTimeout(()=>el.remove(),250);},5000);
 }
