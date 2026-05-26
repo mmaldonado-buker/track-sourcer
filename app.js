@@ -503,7 +503,25 @@ function saveLocal() { localStorage.setItem('st4_thresh', JSON.stringify(thresho
 
 function daysSince(dateStr){ if(!dateStr) return null; return Math.floor((new Date()-new Date(dateStr))/(86400000)); }
 function daysInStage(c){ return daysSince(c.dates?.[c.est]); }
-// ── Control de detección de estancados ──────────────────────
+// ── Zona de Desarrollo Próximo (ZDP) ────────────────────────
+// Cuando ZDP está ACTIVO para un sourcer, necesita aprobación del recruiter
+// para mover candidatos. Cuando está INACTIVO, puede moverlos libremente.
+// Estado por sourcer: { 'Matías Maldonado': true, ... }
+let ZDP_CONFIG = JSON.parse(localStorage.getItem('st4_zdp') || '{}');
+
+function isZDPActive(sourcerName) {
+  // Por defecto activo (true) si no está configurado
+  return ZDP_CONFIG[sourcerName] !== false;
+}
+function setZDP(sourcerName, active) {
+  ZDP_CONFIG[sourcerName] = active;
+  localStorage.setItem('st4_zdp', JSON.stringify(ZDP_CONFIG));
+}
+// Con ZDP inactivo, el sourcer puede mover sin aprobación
+function sourcerNeedsApproval(c) {
+  if (!isZDPActive(c.src)) return false; // ZDP desactivado → libre
+  return isPendingValidation(c);          // ZDP activo → necesita aprobación
+}
 // Desactivado por defecto hasta que las fechas en la BD sean confiables.
 // Se activa desde Configuración cuando el equipo esté listo.
 let STALE_DETECTION_ENABLED = localStorage.getItem('st4_stale_enabled') === 'true';
@@ -1234,15 +1252,20 @@ function sourcerForm(c,salOk){
   const isApproved     = c.sit === 'Aprobado';
   const isEnPool       = c.est === 'En pool';
   const isPorContactar = c.est === 'Por contactar';
-  const isPending      = isPendingValidation(c); // Por validar o sin sit
+  const isPending      = isPendingValidation(c);
+  const zdpActive      = isZDPActive(c.src);
+  const needsApproval  = sourcerNeedsApproval(c); // true si ZDP activo Y sin validar
   const isReadyToCall  = isApproved && isPorContactar;
-  const stagesAllowed  = (isRejected || isPending) ? [c.est] : [...STAGES,'Descartado'];
+  const stagesAllowed  = needsApproval ? [c.est] : [...STAGES,'Descartado'];
 
   return `<div class="psec"><div class="pst">Actualizar (Sourcer)</div><div class="uf">
-    ${isEnPool && isPending ? `
+    ${needsApproval && !zdpActive===false ? `
     <div style="font-size:11px;color:var(--txt3);padding:9px 11px;background:var(--bg3);border-radius:var(--r);border-left:2px solid var(--border2);margin-bottom:8px">
       ⏳ <strong>En revisión</strong> — esperando que el recruiter apruebe o rechace este perfil.
       <br><span style="font-size:10px">Puedes notificarle para que lo revise más rápido.</span>
+    </div>` : !zdpActive ? `
+    <div style="font-size:11px;color:var(--green);padding:9px 11px;background:rgba(45,212,160,.08);border-radius:var(--r);border-left:2px solid var(--green);margin-bottom:8px">
+      🚀 <strong>Zona de Desarrollo Próximo desactivada</strong> — puedes mover este candidato libremente sin aprobación del recruiter.
     </div>` : isRejected ? `
     <div style="font-size:11px;color:var(--red);padding:9px 11px;background:rgba(224,92,92,.08);border-radius:var(--r);border-left:2px solid var(--red);margin-bottom:8px">
       ✕ Candidato <strong>rechazado</strong> por el recruiter.
@@ -1254,10 +1277,10 @@ function sourcerForm(c,salOk){
       ✓ Candidato <strong>aprobado</strong> — en proceso activo.
     </div>`}
     <label>Estado pipeline</label>
-    <select id="u-est" ${(isRejected||isPending)?'disabled':''}>
+    <select id="u-est" ${(isRejected || needsApproval)?'disabled':''}>
       ${stagesAllowed.map(s=>`<option ${s===c.est?'selected':''}>${s}</option>`).join('')}
     </select>
-    ${isPending?`<div style="font-size:10px;color:var(--txt3);margin-top:-4px;margin-bottom:8px">El estado cambia cuando el recruiter apruebe el perfil.</div>`:''}
+    ${needsApproval?`<div style="font-size:10px;color:var(--txt3);margin-top:-4px;margin-bottom:8px">El estado cambia cuando el recruiter apruebe o se desactive la ZDP.</div>`:''}
     <label>Equipo sugerido</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
     ${salOk?`<label>Rango salarial</label><input type="text" id="u-sal" value="${c.sal||''}" placeholder="Expectativa salarial">`:
@@ -1268,10 +1291,10 @@ function sourcerForm(c,salOk){
     <div style="display:flex;gap:6px;flex-direction:column">
       <button class="btn btn-p btn-sm" style="justify-content:center" onclick="saveUpdate(${c.id},'sourcer')">Guardar notas / CV</button>
       ${isReadyToCall?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--p);color:var(--p2)" onclick="marcarContactado(${c.id})">📬 Marcar como Contactado</button>`:''}
-      ${isPending?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="sendNotifToRecruiter(${c.id})" id="notif-btn-${c.id}">🔔 Notificar al recruiter</button>`:''}
+      ${needsApproval?`<button class="btn btn-sm" style="justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="sendNotifToRecruiter(${c.id})" id="notif-btn-${c.id}">🔔 Notificar al recruiter</button>`:''}
     </div>
   </div></div>`;
-}
+
 
 async function autoCategorizarDescarte(idx) {
   const feedback = document.getElementById('u-fb').value;
@@ -1335,16 +1358,16 @@ async function saveUpdate(id, role) {
     changes.sit = document.getElementById('u-sit').value;
     changes.fb  = document.getElementById('u-fb').value;
   } else if(role==='sourcer'){
-    if(!c.sit || c.sit === ''){
-      // Puede guardar notas/CV/equipo pero no cambiar el estado
+    if(sourcerNeedsApproval(c)){
+      // ZDP activo + sin validar: solo notas/CV, no estado
       changes.eq  = document.getElementById('u-eq')?.value  || c.eq;
       changes.fb  = document.getElementById('u-fb')?.value  || c.fb;
-      const cve = document.getElementById('u-cv'); if(cve) changes.cv = cve.value.trim();
+      const cve0 = document.getElementById('u-cv'); if(cve0) changes.cv = cve0.value.trim();
       Object.assign(c, changes);
       setSyncStatus('loading');
       try { await apiCall('updateCandidate',{id,changes,changedBy:CU.name}); setSyncStatus('ok'); }
       catch(err){ setSyncStatus('error','⚠ Guardado local'); }
-      toast('Notas guardadas','El estado solo cambia cuando el recruiter apruebe','ok','✓');
+      toast('Notas guardadas','Estado bloqueado hasta aprobación del recruiter (ZDP activa)','ok','✓');
       afterEdit(id, c.est, c.est);
       return;
     }
@@ -1582,13 +1605,17 @@ function calcSourcerMetrics(sourcerName, start, end, candList) {
 
 // Lista de sourcers visibles según el rol actual
 function getVisibleSourcers() {
+  // Solo Jonathan Quiroz y Eliana Franco ven métricas de todos los sourcers
+  const canSeeAll = CU.id === 'JQ' || CU.id === 'EF';
+  if (canSeeAll) return USERS.filter(u => u.role === 'sourcer').map(u => u.name);
   if (HAT === 'sourcer') return [CU.name];
   if (HAT === 'owner') {
     const sq = SQUADS.find(s => s.id === CU.team);
     return sq ? sq.sourcers : [];
   }
-  // supervisor / viewer → todos
-  return USERS.filter(u => u.role === 'sourcer').map(u => u.name);
+  // Cualquier otro rol (recruiter, viewer) ve solo sus sourcers asignados
+  const mySquad = SQUADS.find(s => s.recruiters.includes(CU.name));
+  return mySquad ? mySquad.sourcers : [CU.name];
 }
 
 // ── Renderizado de la tabla de métricas ─────────────────────
@@ -1888,112 +1915,200 @@ function renderStale(){
 // =====================================
 // VISTA MI DÍA
 // =====================================
-function getTodayCands(){
-  const all = cands.filter(c=>canSeeCandidate(c));
-  const result = [];
-
-  // Por contactar: sourcers/owners ven los que tienen pendiente de contactar
-  if(HAT==='sourcer'||HAT==='owner'||HAT==='supervisor'){
-    all.filter(c=>c.est==='Por contactar'&&normalizeSit(c.sit)==='Aprobado'&&!DISC_S.has(c.est))
-      .forEach(c=>result.push({c, reason:'Por contactar — aprobado por recruiter'}));
-  }
-  // Pendientes de revisión (recruiter/owner)
-  if(HAT==='recruiter'||HAT==='owner'||HAT==='supervisor'){
-    all.filter(c=>(!c.sit||c.sit==='')&&!DISC_S.has(c.est))
-      .forEach(c=>{ if(!result.find(r=>r.c.id===c.id)) result.push({c,reason:'Pendiente de revisión'}); });
-  }
-  // Estancados propios
-  all.filter(c=>isStale(c)).forEach(c=>{
-    if(!result.find(r=>r.c.id===c.id)) result.push({c,reason:`Estancado — ${daysInStage(c)}d en ${c.est}`});
-  });
-  // En pipeline activo sin feedback
-  all.filter(c=>isActiveInPipeline(c)&&!c.fb&&!DISC_S.has(c.est)&&c.est!=='Por contactar').forEach(c=>{
-    if(!result.find(r=>r.c.id===c.id)) result.push({c,reason:'Sin feedback registrado'});
-  });
-  return result;
+// Candidatos post-entrevista TR sin feedback (para recruiter)
+function getPendingFeedbackCands() {
+  return cands.filter(c =>
+    canSeeCandidate(c) &&
+    ['Entrevista TR','Entrevista EM','Misión','Referencias'].includes(normalizeEst(c.est)) &&
+    (!c.fb || c.fb.trim() === '') &&
+    !DISC_S.has(c.est)
+  );
 }
 
 let todayFilter = '';
-
-function setTodayFilter(key){
-  todayFilter = todayFilter === key ? '' : key;
-  renderToday();
-}
+function setTodayFilter(key){ todayFilter = todayFilter===key?'':key; renderToday(); }
 
 function renderToday(){
   const tb = document.getElementById('today-body'); if(!tb) return;
   document.getElementById('today-title').textContent = `Mi día — ${CU.name.split(' ')[0]}`;
-  const items = getTodayCands();
+
+  if(HAT === 'sourcer') renderTodaySourcer(tb);
+  else if(HAT === 'recruiter') renderTodayRecruiter(tb);
+  else renderTodayDefault(tb);
+}
+
+// ── Mi Día: SOURCER ──────────────────────────────────────────
+function renderTodaySourcer(tb) {
+  const porContactar  = getContactarCands();
+  const porValidar    = cands.filter(c=>canSeeCandidate(c)&&isPendingValidation(c)&&!DISC_S.has(c.est));
+  const enProceso     = cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)&&c.est!=='Por contactar');
+
   const nbToday = document.getElementById('nb-today');
-  if(nbToday) nbToday.textContent = items.length;
+  if(nbToday) nbToday.textContent = porContactar.length + porValidar.length;
 
-  if(!items.length){
-    tb.innerHTML=`<div style="text-align:center;padding:40px 20px;color:var(--txt3)">
-      <div style="font-size:28px;margin-bottom:8px">🎉</div>
-      <div style="font-size:13px;font-weight:600;color:var(--txt)">Todo al día</div>
-      <div style="font-size:11px;margin-top:6px">No tienes candidatos pendientes por hoy</div>
+  const mkContactarCard = (c) => `
+    <div class="today-card today-card-action" onclick="openPanel(${c.id})">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+        <div style="min-width:0;flex:1">
+          <div class="rev-name" style="font-size:12px">${c.n}</div>
+          <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'}</div>
+          <div style="font-size:10px;color:var(--p2);margin-top:2px">${c.stack}</div>
+        </div>
+        ${c.l?`<a href="${c.l}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:var(--p2);flex-shrink:0">↗ LI</a>`:''}
+      </div>
+      <button class="btn btn-p btn-sm" style="width:100%;justify-content:center;margin-top:8px" onclick="event.stopPropagation();marcarContactado(${c.id})">
+        📬 Marcar Contactado
+      </button>
     </div>`;
-    return;
-  }
 
-  const groups = {};
-  items.forEach(({c,reason})=>{ const key=reason.split('—')[0].trim(); if(!groups[key])groups[key]=[]; groups[key].push({c,reason}); });
+  const mkValidarCard = (c) => `
+    <div class="today-card" onclick="openPanel(${c.id})" style="border-color:var(--aborder)">
+      <div class="rev-name" style="font-size:12px">${c.n}</div>
+      <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+        ${estB(c.est)}
+        <button class="btn btn-sm" style="font-size:10px;padding:2px 7px;border-color:var(--pborder);color:var(--p2)" onclick="event.stopPropagation();sendNotifToRecruiter(${c.id})" id="notif-btn-${c.id}">🔔</button>
+      </div>
+    </div>`;
 
-  const icons  = {'Por contactar — aprobado por recruiter':'📬','Pendiente de revisión':'⏳','Estancado':'⚠','Sin feedback registrado':'💬'};
-  const colors = {'Por contactar — aprobado por recruiter':'var(--p2)','Pendiente de revisión':'var(--p2)','Estancado':'var(--amber)','Sin feedback registrado':'var(--txt2)'};
-
-  // Tarjetas de categoría clickeables en el resumen
-  const filterTabs = Object.entries(groups).map(([key, list])=>`
-    <div class="mc" onclick="setTodayFilter('${key}')" style="cursor:pointer;border:1px solid ${todayFilter===key?(colors[key]||'var(--border2)'):'var(--border)'};transition:border-color .15s;${todayFilter===key?'background:var(--bg3)':''}">
-      <div class="mcl" style="color:${colors[key]||'var(--txt3)'}">${icons[key]||'•'} ${key}</div>
-      <div class="mcv" style="color:${colors[key]||'var(--txt)'}">${list.length}</div>
-      <div class="mcs">${todayFilter===key?'clic para ver todo':'clic para filtrar'}</div>
-    </div>`).join('');
-
-  // Filtrar grupos según selección
-  const visibleGroups = todayFilter
-    ? Object.entries(groups).filter(([key])=>key===todayFilter)
-    : Object.entries(groups);
+  // Kanban de en proceso
+  const kanbanStages = ['Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias'];
+  const stageColors  = {'Contactado':'#5b9cf0','Screening':'#9d91f5','Entrevista TR':'#a78bfa','Entrevista EM':'#e06cc0','Misión':'#f0a940','Referencias':'#2dd4a0'};
+  const kanbanHTML = kanbanStages.map(stage => {
+    const cards = enProceso.filter(c=>normalizeEst(c.est)===stage);
+    if(!cards.length) return '';
+    return `<div class="today-kanban-col">
+      <div class="today-kanban-header" style="color:${stageColors[stage]||'var(--txt2)'}">
+        ${stage} <span class="nb" style="background:${stageColors[stage]+'22'};color:${stageColors[stage]}">${cards.length}</span>
+      </div>
+      ${cards.map(c=>`
+        <div class="today-kanban-card ${isStale(c)?'stale-card-k':''}" onclick="openPanel(${c.id})">
+          <div style="font-size:12px;font-weight:500">${c.n}${isStale(c)?` <span style="color:var(--amber)">⚠</span>`:''}</div>
+          <div style="font-size:10px;color:var(--txt3)">${c.emp||'—'} · ${daysInStage(c)??'—'}d</div>
+          <div style="margin-top:3px">${chips(c.stack)}</div>
+        </div>`).join('')}
+    </div>`;
+  }).join('');
 
   tb.innerHTML = `
-    <div class="mg" style="margin-bottom:16px">${filterTabs}</div>
-    ${todayFilter?`<div style="font-size:11px;color:var(--txt3);margin-bottom:12px;display:flex;align-items:center;gap:8px">
-      Mostrando solo: <span style="color:${colors[todayFilter]||'var(--txt)'};font-weight:600">${icons[todayFilter]||''} ${todayFilter}</span>
-      <button class="btn btn-sm btn-ghost" style="padding:2px 8px" onclick="setTodayFilter('')">✕ Ver todo</button>
-    </div>`:''}
-    ${visibleGroups.map(([key, list])=>`
-    <div class="rev-section" style="margin-bottom:20px">
-      <div class="rev-sec-title" style="color:${colors[key]||'var(--txt3)'}">
-        ${icons[key]||'•'} ${key} <span class="nb">${list.length}</span>
+    <div class="today-grid-sourcer">
+      <div class="today-box" style="border-color:var(--pborder)">
+        <div class="today-box-title" style="color:var(--p2)">📬 Por contactar <span class="nb live">${porContactar.length}</span></div>
+        ${porContactar.length
+          ? porContactar.map(mkContactarCard).join('')
+          : `<div class="today-empty">Sin candidatos por contactar</div>`}
       </div>
-      <div class="rev-list">
-        ${list.map(({c,reason})=>{
-          const isPorContactar = c.est === 'Por contactar';
-          return `
-          <div class="rev-card" onclick="openPanel(${c.id})" style="cursor:pointer">
-            <div class="rev-card-top">
-              <div style="flex:1;min-width:0">
-                <div class="rev-name">${c.n}</div>
-                <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
-                <div style="font-size:10px;color:${colors[key]||'var(--txt3)'};margin-top:3px">${reason}</div>
-              </div>
-              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
-                ${estB(c.est)}
-                <span style="font-size:10px;color:var(--txt3)">${c.rec||c.src||'—'}</span>
-              </div>
-            </div>
-            ${isPorContactar ? `
-            <div style="margin-top:8px" onclick="event.stopPropagation()">
-              <button class="btn btn-p btn-sm" style="width:100%;justify-content:center" onclick="marcarContactado(${c.id})">
-                📬 Marcar como Contactado
-              </button>
-            </div>` : ''}
-          </div>`;
-        }).join('')}
+      <div class="today-box" style="border-color:var(--aborder)">
+        <div class="today-box-title" style="color:var(--amber)">⏳ Pendientes de validación <span class="nb warn">${porValidar.length}</span></div>
+        ${porValidar.length
+          ? porValidar.map(mkValidarCard).join('')
+          : `<div class="today-empty">Sin pendientes — ¡al día!</div>`}
       </div>
-    </div>`).join('')}
+    </div>
+    <div class="today-box today-box-wide" style="margin-top:14px">
+      <div class="today-box-title">🔄 Mis candidatos en proceso <span class="nb">${enProceso.length}</span></div>
+      ${enProceso.length
+        ? `<div class="today-kanban">${kanbanHTML||'<div class="today-empty">Sin candidatos en proceso aún</div>'}</div>`
+        : `<div class="today-empty">Sin candidatos en proceso aún</div>`}
+    </div>
   `;
 }
+
+// ── Mi Día: RECRUITER ────────────────────────────────────────
+function renderTodayRecruiter(tb) {
+  const porValidar   = getReviewCands();
+  const sinFeedback  = getPendingFeedbackCands();
+  const enProceso    = cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)&&c.est!=='Por contactar'&&c.est!=='En pool');
+
+  const nbToday = document.getElementById('nb-today');
+  if(nbToday) nbToday.textContent = porValidar.length + sinFeedback.length;
+
+  const mkValidarCard = (c) => `
+    <div class="today-card" onclick="openPanel(${c.id})">
+      <div class="rev-name" style="font-size:12px">${c.n}</div>
+      <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · ${c.stack}</div>
+      <div style="font-size:10px;color:var(--txt3);margin-top:3px">Sourcer: ${c.src||'—'}</div>
+      <div style="display:flex;gap:5px;margin-top:8px" onclick="event.stopPropagation()">
+        <button class="btn btn-green btn-sm" style="flex:1;justify-content:center;font-size:10px" onclick="reviewAction(${c.id},'approve')">✓ Aprobar</button>
+        <button class="btn btn-danger btn-sm" style="font-size:10px" onclick="reviewAction(${c.id},'reject')">✕</button>
+      </div>
+    </div>`;
+
+  const mkFeedbackCard = (c) => `
+    <div class="today-card" onclick="openPanel(${c.id})" style="border-color:var(--bborder)">
+      <div class="rev-name" style="font-size:12px">${c.n}</div>
+      <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'}</div>
+      <div style="margin-top:4px">${estB(c.est)}</div>
+    </div>`;
+
+  const kanbanStages = ['Contactado','Screening','Entrevista TR','Entrevista EM','Misión','Referencias'];
+  const stageColors  = {'Contactado':'#5b9cf0','Screening':'#9d91f5','Entrevista TR':'#a78bfa','Entrevista EM':'#e06cc0','Misión':'#f0a940','Referencias':'#2dd4a0'};
+  const kanbanHTML = kanbanStages.map(stage => {
+    const cards = enProceso.filter(c=>normalizeEst(c.est)===stage);
+    if(!cards.length) return '';
+    return `<div class="today-kanban-col">
+      <div class="today-kanban-header" style="color:${stageColors[stage]||'var(--txt2)'}">
+        ${stage} <span class="nb">${cards.length}</span>
+      </div>
+      ${cards.map(c=>`
+        <div class="today-kanban-card ${isStale(c)?'stale-card-k':''}" onclick="openPanel(${c.id})">
+          <div style="font-size:12px;font-weight:500">${c.n}</div>
+          <div style="font-size:10px;color:var(--txt3)">${c.src||'—'} · ${daysInStage(c)??'—'}d</div>
+        </div>`).join('')}
+    </div>`;
+  }).join('');
+
+  tb.innerHTML = `
+    <div class="today-grid-recruiter">
+      <div class="today-box" style="border-color:var(--aborder)">
+        <div class="today-box-title" style="color:var(--amber)">⏳ Por validar <span class="nb warn">${porValidar.length}</span></div>
+        ${porValidar.length
+          ? porValidar.map(mkValidarCard).join('')
+          : `<div class="today-empty">Sin perfiles por validar</div>`}
+      </div>
+      <div class="today-box" style="border-color:var(--bborder)">
+        <div class="today-box-title" style="color:var(--blue)">💬 Sin feedback post-entrevista <span class="nb" style="background:var(--bbg);color:var(--blue)">${sinFeedback.length}</span></div>
+        <div style="font-size:10px;color:var(--txt3);margin-bottom:8px">Candidatos que pasaron entrevista TR y aún no tienen feedback</div>
+        ${sinFeedback.length
+          ? sinFeedback.map(mkFeedbackCard).join('')
+          : `<div class="today-empty">Sin pendientes de feedback 🎉</div>`}
+      </div>
+    </div>
+    <div class="today-box today-box-wide" style="margin-top:14px">
+      <div class="today-box-title">🔄 Mis candidatos en proceso <span class="nb">${enProceso.length}</span></div>
+      ${enProceso.length
+        ? `<div class="today-kanban">${kanbanHTML||'<div class="today-empty">Sin candidatos aún</div>'}</div>`
+        : `<div class="today-empty">Sin candidatos en proceso aún</div>`}
+    </div>
+  `;
+}
+
+// ── Mi Día: OWNER / SUPERVISOR / VIEWER ─────────────────────
+function renderTodayDefault(tb) {
+  const all = cands.filter(c=>canSeeCandidate(c));
+  const stale = all.filter(c=>isStale(c));
+  const sinFeedback = getPendingFeedbackCands();
+  const porValidar = getReviewCands();
+  const nbToday = document.getElementById('nb-today');
+  if(nbToday) nbToday.textContent = stale.length + porValidar.length;
+
+  tb.innerHTML = `
+    <div class="mg" style="margin-bottom:16px">
+      <div class="mc"><div class="mcl">Por validar</div><div class="mcv mv-a">${porValidar.length}</div></div>
+      <div class="mc"><div class="mcl">Sin feedback</div><div class="mcv" style="color:var(--blue)">${sinFeedback.length}</div></div>
+      <div class="mc"><div class="mcl">Estancados</div><div class="mcv mv-r">${stale.length}</div></div>
+      <div class="mc"><div class="mcl">En pipeline</div><div class="mcv mv-g">${all.filter(c=>isActiveInPipeline(c)).length}</div></div>
+    </div>
+    ${stale.length?`<div class="rev-section"><div class="rev-sec-title" style="color:var(--amber)">⚠ Estancados</div><div class="rev-list">
+      ${stale.slice(0,5).map(c=>`<div class="rev-card" onclick="openPanel(${c.id})" style="cursor:pointer">
+        <div class="rev-name">${c.n}</div>
+        <div class="rev-meta">${c.est} · ${daysInStage(c)}d · ${c.src||'—'}</div>
+      </div>`).join('')}
+    </div></div>`:''}
+  `;
+}
+
+function getTodayCands(){ return []; } // legacy — ya no se usa directamente
 
 function renderConfig(){
   // ── Toggle detección de estancados ──────────────────────
@@ -2008,6 +2123,37 @@ function renderConfig(){
       toast(msg, '', STALE_DETECTION_ENABLED ? 'ok' : 'wrn', STALE_DETECTION_ENABLED ? '⚠' : '○');
     };
   }
+  // ── ZDP por sourcer ─────────────────────────────────────────
+  const zdpEl = document.getElementById('zdp-rows');
+  if(zdpEl) {
+    const mySourcers = HAT==='recruiter'
+      ? (SQUADS.find(s=>s.recruiters.some(r=>normName(r)===normName(CU.name)))?.sourcers || [])
+      : HAT==='owner'
+        ? (SQUADS.find(s=>s.id===CU.team)?.sourcers || [])
+        : (HAT==='supervisor'||CU.id==='JQ')
+          ? USERS.filter(u=>u.role==='sourcer').map(u=>u.name)
+          : [];
+
+    zdpEl.innerHTML = mySourcers.length ? mySourcers.map(src => {
+      const active = isZDPActive(src);
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);margin-bottom:6px">
+        <div>
+          <div style="font-size:13px;font-weight:500">${src}</div>
+          <div style="font-size:11px;color:var(--txt3);margin-top:2px">
+            ${active ? '🔒 ZDP activa — necesita aprobación para mover candidatos' : '🚀 ZDP inactiva — puede mover candidatos libremente'}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:10px;color:${active?'var(--p2)':'var(--green)'}">${active?'Activa':'Inactiva'}</span>
+          <div onclick="toggleZDP('${src}')" style="position:relative;width:40px;height:22px;flex-shrink:0;cursor:pointer">
+            <span style="position:absolute;inset:0;background:${active?'var(--p)':'var(--border2)'};border-radius:22px;transition:.2s"></span>
+            <span style="position:absolute;width:16px;height:16px;background:#fff;border-radius:50%;top:3px;left:${active?'21':'3'}px;transition:.2s"></span>
+          </div>
+        </div>
+      </div>`;
+    }).join('') : `<div style="font-size:12px;color:var(--txt3);padding:8px">Sin sourcers asignados a tu equipo.</div>`;
+  }
+
   document.getElementById('threshold-rows').innerHTML=STAGES.map(s=>`
     <div class="threshold-row">
       <div><div style="font-size:13px;font-weight:500">${s}</div><div style="font-size:11px;color:var(--txt3)">Días sin actualización</div></div>
@@ -2027,6 +2173,18 @@ function renderConfig(){
   const ck=document.getElementById('cfg-key'); if(ck&&API_KEY) ck.value=API_KEY;
   const statusCfg=document.getElementById('sheets-status-cfg');
   if(statusCfg) statusCfg.textContent = IS_OFFLINE ? 'Modo demo (local)' : SHEETS_URL ? `✓ Conectado: ${SHEETS_URL.slice(0,50)}...` : 'Sin configurar';
+}
+
+function toggleZDP(sourcerName) {
+  const newVal = !isZDPActive(sourcerName);
+  setZDP(sourcerName, newVal);
+  renderConfig(); // re-render para actualizar el toggle visual
+  toast(
+    `ZDP ${newVal ? 'activada' : 'desactivada'} para ${sourcerName.split(' ')[0]}`,
+    newVal ? 'Ahora necesita aprobación del recruiter' : 'Puede mover candidatos libremente',
+    newVal ? 'wrn' : 'ok',
+    newVal ? '🔒' : '🚀'
+  );
 }
 
 function saveThresholds(){
