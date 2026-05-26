@@ -466,13 +466,17 @@ let selUserId = null;
 // Siempre usa America/Santiago independiente del computador del usuario.
 // Devuelve 'YYYY-MM-DD' para guardar en la BD.
 function todayCL() {
-  return new Date().toLocaleDateString('es-CL', {
-    timeZone: 'America/Santiago',
-    year:  'numeric',
-    month: '2-digit',
-    day:   '2-digit',
-  }).split('-').reverse().join('-');
-  // toLocaleDateString en es-CL devuelve DD-MM-YYYY, reverse() lo convierte a YYYY-MM-DD
+  // Método robusto que funciona en todos los browsers
+  try {
+    const d = new Date(new Date().toLocaleString('en-US', {timeZone:'America/Santiago'}));
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  } catch(e) {
+    // Fallback: UTC
+    return new Date().toISOString().slice(0,10);
+  }
 }
 
 // Versión con hora incluida, para logs y notificaciones
@@ -633,21 +637,32 @@ function buildLoginList() {
 }
 
 async function directLogin(id){
-  CU=USERS.find(u=>u.id===id); 
-  HAT=CU.role;
-  document.getElementById('login').style.display='none';
-  document.getElementById('app').style.display='flex';
-  loadLocalConfig(); init();
-  if(!IS_OFFLINE) setTimeout(()=>syncNow(), 300);
-  // Arrancar polling de notificaciones solo para recruiters y owners
-  startNotifPolling();
+  try {
+    CU = USERS.find(u=>u.id===id);
+    if(!CU){ console.error('Usuario no encontrado:', id); return; }
+    HAT = CU.role;
+    document.getElementById('login').style.display='none';
+    document.getElementById('app').style.display='flex';
+    loadLocalConfig();
+    init();
+    if(!IS_OFFLINE) setTimeout(()=>syncNow(), 300);
+    startNotifPolling();
+  } catch(e) {
+    console.error('Error en directLogin:', e);
+    alert('Error al iniciar sesión: ' + e.message + '\n\nRevisa la consola (F12) para más detalles.');
+  }
 }
 
 function init(){
-  buildSidebar(); updateFooter(); checkStaleNow();
-  if(HAT==='recruiter' || HAT==='owner') nav('today');
-  else { currentPool=pools[0]?.id||1; nav('today'); }
-  toast('Bienvenid@',CU.name,CU.role==='viewer'?'inf':'ok','⬡');
+  try {
+    buildSidebar();
+    updateFooter();
+    checkStaleNow();
+    nav('today');
+    toast('Bienvenid@', CU.name, CU.role==='viewer'?'inf':'ok', '⬡');
+  } catch(e) {
+    console.error('Error en init:', e);
+  }
 }
 
 // Normaliza una cadena: minúsculas + sin tildes
@@ -1933,11 +1948,19 @@ function setTodayFilter(key){ todayFilter = todayFilter===key?'':key; renderToda
 
 function renderToday(){
   const tb = document.getElementById('today-body'); if(!tb) return;
-  document.getElementById('today-title').textContent = `Mi día — ${CU.name.split(' ')[0]}`;
-
-  if(HAT === 'sourcer') renderTodaySourcer(tb);
-  else if(HAT === 'recruiter') renderTodayRecruiter(tb);
-  else renderTodayDefault(tb);
+  const titleEl = document.getElementById('today-title');
+  if(titleEl) titleEl.textContent = `Mi día — ${CU?.name?.split(' ')[0] || ''}`;
+  try {
+    if(HAT === 'sourcer') renderTodaySourcer(tb);
+    else if(HAT === 'recruiter') renderTodayRecruiter(tb);
+    else renderTodayDefault(tb);
+  } catch(e) {
+    console.error('Error en renderToday:', e);
+    tb.innerHTML = `<div style="padding:20px;color:var(--red);font-size:12px">
+      Error al cargar Mi Día: ${e.message}<br>
+      <small style="color:var(--txt3)">Revisa la consola (F12) para más detalles.</small>
+    </div>`;
+  }
 }
 
 // ── Mi Día: SOURCER ──────────────────────────────────────────
