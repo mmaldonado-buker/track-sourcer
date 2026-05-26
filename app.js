@@ -1605,17 +1605,19 @@ function calcSourcerMetrics(sourcerName, start, end, candList) {
 
 // Lista de sourcers visibles según el rol actual
 function getVisibleSourcers() {
-  // Solo Jonathan Quiroz y Eliana Franco ven métricas de todos los sourcers
+  // Jonathan (JQ) y Eliana (EF) ven todos los sourcers — misma vista compartida
   const canSeeAll = CU.id === 'JQ' || CU.id === 'EF';
   if (canSeeAll) return USERS.filter(u => u.role === 'sourcer').map(u => u.name);
+  // Sourcer: solo sus propias métricas
   if (HAT === 'sourcer') return [CU.name];
+  // Owner: sourcers de su squad
   if (HAT === 'owner') {
     const sq = SQUADS.find(s => s.id === CU.team);
     return sq ? sq.sourcers : [];
   }
-  // Cualquier otro rol (recruiter, viewer) ve solo sus sourcers asignados
-  const mySquad = SQUADS.find(s => s.recruiters.includes(CU.name));
-  return mySquad ? mySquad.sourcers : [CU.name];
+  // Recruiter: sourcers de su squad
+  const mySquad = SQUADS.find(s => s.recruiters.some(r => normName(r) === normName(CU.name)));
+  return mySquad ? mySquad.sourcers : [];
 }
 
 // ── Renderizado de la tabla de métricas ─────────────────────
@@ -1917,9 +1919,10 @@ function renderStale(){
 // =====================================
 // Candidatos post-entrevista TR sin feedback (para recruiter)
 function getPendingFeedbackCands() {
+  // Solo candidatos en Entrevista TR sin ningún comentario
   return cands.filter(c =>
     canSeeCandidate(c) &&
-    ['Entrevista TR','Entrevista EM','Misión','Referencias'].includes(normalizeEst(c.est)) &&
+    normalizeEst(c.est) === 'Entrevista TR' &&
     (!c.fb || c.fb.trim() === '') &&
     !DISC_S.has(c.est)
   );
@@ -1940,7 +1943,13 @@ function renderToday(){
 // ── Mi Día: SOURCER ──────────────────────────────────────────
 function renderTodaySourcer(tb) {
   const porContactar  = getContactarCands();
-  const porValidar    = cands.filter(c=>canSeeCandidate(c)&&isPendingValidation(c)&&!DISC_S.has(c.est));
+  // Pendientes de validación: candidatos que este sourcer agregó y aún no tienen aprobación
+  const porValidar    = cands.filter(c =>
+    canSeeCandidate(c) &&
+    (c.sit === 'Por validar' || !c.sit || c.sit === '') &&
+    !DISC_S.has(c.est) &&
+    c.sit !== 'Rechazado'
+  );
   const enProceso     = cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)&&c.est!=='Por contactar');
 
   const nbToday = document.getElementById('nb-today');
@@ -2016,7 +2025,13 @@ function renderTodaySourcer(tb) {
 
 // ── Mi Día: RECRUITER ────────────────────────────────────────
 function renderTodayRecruiter(tb) {
-  const porValidar   = getReviewCands();
+  // Pendientes de validar: candidatos asignados a este recruiter sin decisión aún
+  const porValidar   = cands.filter(c =>
+    canSeeCandidate(c) &&
+    (c.sit === 'Por validar' || !c.sit || c.sit === '') &&
+    !DISC_S.has(c.est) &&
+    c.sit !== 'Rechazado'
+  );
   const sinFeedback  = getPendingFeedbackCands();
   const enProceso    = cands.filter(c=>canSeeCandidate(c)&&isActiveInPipeline(c)&&c.est!=='Por contactar'&&c.est!=='En pool');
 
@@ -2126,32 +2141,47 @@ function renderConfig(){
   // ── ZDP por sourcer ─────────────────────────────────────────
   const zdpEl = document.getElementById('zdp-rows');
   if(zdpEl) {
-    const mySourcers = HAT==='recruiter'
-      ? (SQUADS.find(s=>s.recruiters.some(r=>normName(r)===normName(CU.name)))?.sourcers || [])
-      : HAT==='owner'
-        ? (SQUADS.find(s=>s.id===CU.team)?.sourcers || [])
-        : (HAT==='supervisor'||CU.id==='JQ')
-          ? USERS.filter(u=>u.role==='sourcer').map(u=>u.name)
-          : [];
+    let mySourcers = [];
+    if(HAT==='recruiter'){
+      const sq = SQUADS.find(s=>s.recruiters.some(r=>normName(r)===normName(CU.name)));
+      mySourcers = sq ? sq.sourcers : [];
+    } else if(HAT==='owner'){
+      const sq = SQUADS.find(s=>s.id===CU.team);
+      mySourcers = sq ? sq.sourcers : [];
+    } else if(HAT==='supervisor'||CU.id==='JQ'||CU.id==='EF'){
+      mySourcers = USERS.filter(u=>u.role==='sourcer').map(u=>u.name);
+    }
 
-    zdpEl.innerHTML = mySourcers.length ? mySourcers.map(src => {
-      const active = isZDPActive(src);
-      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);margin-bottom:6px">
-        <div>
-          <div style="font-size:13px;font-weight:500">${src}</div>
-          <div style="font-size:11px;color:var(--txt3);margin-top:2px">
-            ${active ? '🔒 ZDP activa — necesita aprobación para mover candidatos' : '🚀 ZDP inactiva — puede mover candidatos libremente'}
+    if(mySourcers.length){
+      zdpEl.innerHTML = mySourcers.map(src => {
+        const active = isZDPActive(src);
+        const safeSrc = src.replace(/'/g,"\\'");
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);margin-bottom:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500">${src}</div>
+            <div style="font-size:11px;color:${active?'var(--txt3)':'var(--green)'};margin-top:3px">
+              ${active
+                ? '🔒 ZDP activa — necesita aprobación del recruiter para avanzar'
+                : '🚀 ZDP inactiva — puede mover candidatos libremente sin aprobación'}
+            </div>
           </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:10px;color:${active?'var(--p2)':'var(--green)'}">${active?'Activa':'Inactiva'}</span>
-          <div onclick="toggleZDP('${src}')" style="position:relative;width:40px;height:22px;flex-shrink:0;cursor:pointer">
-            <span style="position:absolute;inset:0;background:${active?'var(--p)':'var(--border2)'};border-radius:22px;transition:.2s"></span>
-            <span style="position:absolute;width:16px;height:16px;background:#fff;border-radius:50%;top:3px;left:${active?'21':'3'}px;transition:.2s"></span>
+          <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;margin-left:16px">
+            <span style="font-size:11px;font-weight:600;color:${active?'var(--p2)':'var(--green)'}">
+              ${active?'Activa':'Inactiva'}
+            </span>
+            <div onclick="toggleZDP('${safeSrc}')"
+              style="position:relative;width:44px;height:24px;cursor:pointer;flex-shrink:0">
+              <span style="position:absolute;inset:0;background:${active?'var(--p)':'var(--border2)'};border-radius:24px;transition:background .2s;display:block"></span>
+              <span style="position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:3px;left:${active?'23':'3'}px;transition:left .2s;display:block;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+            </div>
           </div>
-        </div>
+        </div>`;
+      }).join('');
+    } else {
+      zdpEl.innerHTML = `<div style="font-size:12px;color:var(--txt3);padding:10px;background:var(--bg3);border-radius:var(--r);border:1px solid var(--border)">
+        ${HAT==='viewer'||HAT==='sourcer'?'Solo recruiters y owners pueden gestionar la ZDP.':'Sin sourcers asignados a tu equipo.'}
       </div>`;
-    }).join('') : `<div style="font-size:12px;color:var(--txt3);padding:8px">Sin sourcers asignados a tu equipo.</div>`;
+    }
   }
 
   document.getElementById('threshold-rows').innerHTML=STAGES.map(s=>`
