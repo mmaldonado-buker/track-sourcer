@@ -210,7 +210,15 @@
           Estancados <span class="nb danger" id="nb-stale">0</span>
         </button>
       </div>
+      <button class="ni" onclick="nav('recontact')" id="ni-recontact">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        Por recontactar <span class="nb" id="nb-recontact">0</span>
+      </button>
       <div class="sb-div"></div>
+      <button class="ni" onclick="nav('recontact')" id="ni-recontact">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        Por recontactar <span class="nb" id="nb-recontact">0</span>
+      </button>
       <button class="ni" onclick="nav('today')" id="ni-today">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="16" r="1" fill="currentColor"/></svg>
         Mi día <span class="nb" id="nb-today">0</span>
@@ -238,6 +246,7 @@
         <div style="min-width:0"><div class="uname" id="sb-uname"></div><div class="urole" id="sb-urole"></div></div>
       </div>
       <button class="switch-btn" id="sb-switch" onclick="switchHat()">↩ Cambiar usuario / rol</button>
+      <button class="switch-btn" id="theme-toggle-btn" onclick="toggleTheme()" style="margin-top:2px">☀ Modo día</button>
     </div>
   </nav>
 
@@ -250,6 +259,28 @@
         </div>
       </div>
       <div style="flex:1;overflow-y:auto;padding:16px" id="today-body"></div>
+    </div>
+
+    <div id="v-recontact" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+      <div class="topbar">
+        <h1>Por Recontactar</h1>
+        <div style="display:flex;gap:7px;align-items:center">
+          <span style="font-size:11px;color:var(--txt2)">Candidatos descartados por motivos reversibles con +6 meses desde el contacto</span>
+          <button class="btn btn-sm" onclick="syncNow()">↻ Sync</button>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px" id="recontact-body"></div>
+    </div>
+
+    <div id="v-recontact" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+      <div class="topbar">
+        <h1>Por Recontactar</h1>
+        <div style="display:flex;gap:7px;align-items:center">
+          <span style="font-size:11px;color:var(--txt2)">Descartados por motivos reversibles · +6 meses desde el contacto</span>
+          <button class="btn btn-sm" onclick="syncNow()">↻ Sync</button>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px" id="recontact-body"></div>
     </div>
 
     <div id="v-stale" style="display:none;flex-direction:column;flex:1;overflow:hidden">
@@ -278,8 +309,11 @@
         <div class="ptabs" id="pool-ptabs"></div>
         <div class="fb">
           <input type="text" id="ps-q" placeholder="Buscar nombre, stack, empresa..." oninput="renderPool()">
-          <select id="ps-sit" onchange="renderPool()"><option value="">Situación</option><option>Aprobado</option><option>Rechazado</option><option>Por revisar</option></select>
-          <select id="ps-est" onchange="renderPool()"><option value="">Estado</option><option>Contactado</option><option>Screening</option><option>Entrevista Inicial</option><option>Entrevista EM</option><option>Misión</option><option>Descartado</option></select>
+          <select id="ps-sit" onchange="renderPool()"><option value="">Situación</option><option>Por validar</option><option>Aprobado</option><option>Rechazado</option><option>Por revisar</option></select>
+          <select id="ps-est" onchange="renderPool()"><option value="">Estado</option><option>En pool</option><option>Por contactar</option><option>Contactado</option><option>Screening</option><option>Entrevista TR</option><option>Entrevista EM</option><option>Misión</option><option>Referencias</option><option>Contratado</option><option>Descartado</option></select>
+          <input type="text" id="ps-stack" placeholder="Filtrar por stack..." oninput="renderPool()" style="max-width:140px">
+          <input type="text" id="ps-rec"   placeholder="Filtrar por recruiter..." oninput="renderPool()" style="max-width:150px">
+          <input type="text" id="ps-eq"    placeholder="Filtrar por equipo..." oninput="renderPool()" style="max-width:130px">
           <button class="btn btn-sm btn-ghost" onclick="resetPF()">Limpiar</button>
         </div>
         <div class="tw"><table><thead><tr>
@@ -376,6 +410,18 @@
               <span onclick="document.getElementById('stale-toggle').click()" style="position:absolute;cursor:pointer;inset:0;background:var(--border2);border-radius:22px;transition:.2s" id="stale-toggle-track"></span>
             </label>
           </div>
+          <h2 style="font-size:13px;font-weight:600;margin:22px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Por recontactar</h2>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);margin-bottom:12px">
+            <div>
+              <div style="font-size:13px;font-weight:500">Activar sección "Por recontactar"</div>
+              <div style="font-size:11px;color:var(--txt3);margin-top:2px">Muestra candidatos descartados por motivos reversibles con +6 meses desde el contacto. Actívalo cuando las fechas de la BD sean confiables.</div>
+            </div>
+            <label style="position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;margin-left:16px">
+              <input type="checkbox" id="recontact-toggle" style="opacity:0;width:0;height:0">
+              <span onclick="document.getElementById('recontact-toggle').click()" style="position:absolute;cursor:pointer;inset:0;background:var(--border2);border-radius:22px;transition:.2s"></span>
+            </label>
+          </div>
+
           <h2 style="font-size:13px;font-weight:600;margin:22px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Umbrales de alerta por estancamiento</h2>
           <div id="threshold-rows"></div>
           <button class="btn btn-p btn-sm" style="margin-top:10px" onclick="saveThresholds()">Guardar umbrales</button>
