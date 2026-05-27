@@ -2,6 +2,13 @@
 let SHEETS_URL = localStorage.getItem('st4_sheets_url') || '';
 let IS_OFFLINE = false;
 
+// ── Tema: aplicar inmediatamente al cargar, antes de cualquier render ──
+// Esto evita el flash de modo oscuro cuando el usuario tiene modo día guardado
+(function() {
+  var t = localStorage.getItem('st4_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+
 // LIMPIADOR AUTOMÁTICO: Quita el /u/1/ para que Google no bloquee la conexión
 function getSafeUrl(url) { return url ? url.replace(/\/macros\/u\/\d+\/s\//, '/macros/s/') : ''; }
 
@@ -887,7 +894,8 @@ let THEME = localStorage.getItem('st4_theme') || 'dark';
 
 function applyTheme(theme) {
   THEME = theme;
-  document.body.setAttribute('data-theme', theme);
+  // Aplicar en <html> para que los selectores CSS funcionen en toda la página
+  document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('st4_theme', theme);
   const btn = document.getElementById('theme-toggle-btn');
   if (btn) btn.textContent = theme === 'dark' ? '☀ Modo día' : '🌙 Modo noche';
