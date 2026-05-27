@@ -162,7 +162,7 @@ async function syncNow() {
     localStorage.setItem('st4_cands', JSON.stringify(cands));
     localStorage.setItem('st4_pools', JSON.stringify(pools));
     setSyncStatus('ok'); buildSidebar();
-    const views = ['pool','pipeline','kanban','analytics','review','stale','today','contactar','metrics'];
+    const views = ['pool','pipeline','kanban','analytics','review','stale','today','contactar','metrics','recontact'];
     views.forEach(v => {
       const el = document.getElementById('v-' + v);
       if (el && el.style.display !== 'none') {
@@ -172,6 +172,7 @@ async function syncNow() {
         if (v === 'analytics') renderAnalytics();
         if (v === 'review') renderReview();
         if (v === 'contactar') renderContactar();
+        if (v === 'recontact') renderRecontact();
         if (v === 'metrics') renderMetrics();
       }
     });
@@ -530,6 +531,160 @@ function sourcerNeedsApproval(c) {
 // Se activa desde Configuración cuando el equipo esté listo.
 let STALE_DETECTION_ENABLED = localStorage.getItem('st4_stale_enabled') === 'true';
 
+// ── Por Recontactar ──────────────────────────────────────────
+let RECONTACT_ENABLED = localStorage.getItem('st4_recontact_enabled') === 'true';
+const RECONTACT_MOTIVOS = new Set(['Renta','Sin interés','No contesta','Se bajó del proceso']);
+const RECONTACT_MONTHS  = 6;
+
+function isRecontactable(c) {
+  if (!RECONTACT_ENABLED) return false;
+  if (!DISC_S.has(c.est) && c.est !== 'No interesado') return false;
+  if (!RECONTACT_MOTIVOS.has(c.mo)) return false;
+  const fecha = c.dates?.Contactado || c.dates?.['Por contactar'];
+  if (!fecha) return false;
+  const meses = (new Date() - new Date(fecha)) / (1000*60*60*24*30.44);
+  return meses >= RECONTACT_MONTHS;
+}
+
+function getRecontactCands() {
+  return cands.filter(c => canSeeCandidate(c) && isRecontactable(c));
+}
+
+function mesesDesdeContacto(c) {
+  const f = c.dates?.Contactado || c.dates?.['Por contactar'];
+  if (!f) return 0;
+  return Math.floor((new Date() - new Date(f)) / (1000*60*60*24*30.44));
+}
+
+function renderRecontact() {
+  const rb = document.getElementById('recontact-body'); if (!rb) return;
+
+  if (!RECONTACT_ENABLED) {
+    rb.innerHTML = `
+      <div style="text-align:center;padding:40px 20px;color:var(--txt3)">
+        <div style="font-size:28px;margin-bottom:8px">⏸</div>
+        <div style="font-size:13px;font-weight:600;color:var(--txt)">Sección desactivada</div>
+        <div style="font-size:11px;margin-top:6px;max-width:320px;margin-left:auto;margin-right:auto">
+          Actívala en <strong>Configuración → Por recontactar</strong> cuando las fechas de contacto sean confiables en la BD.
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Leer filtros
+  const fStack = (document.getElementById('rc-stack')?.value||'').toLowerCase().trim();
+  const fEq    = (document.getElementById('rc-eq')?.value||'').toLowerCase().trim();
+  const fPool  = document.getElementById('rc-pool')?.value||'';
+  const fMotivo= document.getElementById('rc-motivo')?.value||'';
+
+  let pending = getRecontactCands().filter(c => {
+    if (fStack  && !(c.stack||'').toLowerCase().includes(fStack)) return false;
+    if (fEq     && !(c.eq||'').toLowerCase().includes(fEq))      return false;
+    if (fPool   && String(c.pid) !== String(fPool))              return false;
+    if (fMotivo && c.mo !== fMotivo)                             return false;
+    return true;
+  });
+
+  // Ordenar: más meses primero
+  pending.sort((a,b) => mesesDesdeContacto(b) - mesesDesdeContacto(a));
+
+  const total = getRecontactCands().length;
+
+  rb.innerHTML = `
+    <div style="display:flex;gap:7px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+      <input type="text" id="rc-stack"  placeholder="Stack..." oninput="renderRecontact()"
+        style="background:var(--bg2);border:1px solid var(--border2);color:var(--txt);border-radius:var(--r);padding:5px 9px;font-size:12px;font-family:var(--font);outline:none;width:130px">
+      <input type="text" id="rc-eq"    placeholder="Equipo sugerido..." oninput="renderRecontact()"
+        style="background:var(--bg2);border:1px solid var(--border2);color:var(--txt);border-radius:var(--r);padding:5px 9px;font-size:12px;font-family:var(--font);outline:none;width:160px">
+      <select id="rc-pool" onchange="renderRecontact()"
+        style="background:var(--bg2);border:1px solid var(--border2);color:var(--txt);border-radius:var(--r);padding:5px 9px;font-size:12px;font-family:var(--font);outline:none">
+        <option value="">Todos los pools</option>
+        ${pools.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+      </select>
+      <select id="rc-motivo" onchange="renderRecontact()"
+        style="background:var(--bg2);border:1px solid var(--border2);color:var(--txt);border-radius:var(--r);padding:5px 9px;font-size:12px;font-family:var(--font);outline:none">
+        <option value="">Todos los motivos</option>
+        ${[...RECONTACT_MOTIVOS].map(m=>`<option value="${m}">${m}</option>`).join('')}
+      </select>
+      <button class="btn btn-sm btn-ghost" onclick="resetRecontactF()">Limpiar</button>
+      <span style="font-size:11px;color:var(--txt3);margin-left:4px">${pending.length} de ${total} candidatos</span>
+    </div>
+
+    ${pending.length ? `
+    <div class="rev-list">
+      ${pending.map(c => {
+        const meses = mesesDesdeContacto(c);
+        const urgency = meses >= 12 ? 'color:var(--green)' : 'color:var(--txt2)';
+        return `<div class="rev-card" onclick="openPanel(${c.id})" style="cursor:pointer">
+          <div class="rev-card-top">
+            <div style="flex:1;min-width:0">
+              <div class="rev-name">${c.n}
+                <span style="font-size:10px;font-weight:400;margin-left:6px;${urgency}">${meses}m sin contacto</span>
+              </div>
+              <div class="rev-meta">${c.emp||'—'} · ${c.s||'?'} · <span style="color:var(--p2)">${c.stack}</span></div>
+              <div style="font-size:10px;color:var(--txt3);margin-top:2px">
+                Pool: ${pname(c.pid)}
+                ${c.eq ? ` · Equipo: ${c.eq}` : ''}
+                · Motivo: <strong style="color:var(--txt2)">${c.mo||'—'}</strong>
+                ${c.ciclos ? ` · <span style="color:var(--amber)">${c.ciclos} ciclo${c.ciclos>1?'s':''} previo${c.ciclos>1?'s':''}</span>` : ''}
+              </div>
+              ${c.fb ? `<div class="rev-fb" style="margin-top:4px">"${c.fb}"</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+              ${c.l ? `<a href="${c.l}" target="_blank" class="tdl" style="font-size:11px" onclick="event.stopPropagation()">↗ LI</a>` : ''}
+              <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();openPanel(${c.id})">Ver</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:10px" onclick="event.stopPropagation()">
+            <button class="btn btn-p btn-sm" style="flex:1;justify-content:center" onclick="reiniciarAlPool(${c.id})">
+              ↩ Reiniciar al pool
+            </button>
+            <button class="btn btn-sm btn-ghost" style="color:var(--txt3)" onclick="mantenerDescartado(${c.id})">
+              Marcar revisado
+            </button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>` : `
+    <div style="text-align:center;padding:40px 20px;color:var(--txt3)">
+      <div style="font-size:24px;margin-bottom:8px">🔍</div>
+      <div style="font-size:13px">Sin candidatos con esos filtros</div>
+      <div style="font-size:11px;margin-top:4px">Prueba cambiando el stack o equipo buscado</div>
+    </div>`}
+  `;
+}
+
+function resetRecontactF() {
+  ['rc-stack','rc-eq','rc-pool','rc-motivo'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value='';
+  });
+  renderRecontact();
+}
+
+async function reiniciarAlPool(id) {
+  const c = cands.find(x=>x.id===id); if(!c) return;
+  if(!confirm(`¿Reiniciar a ${c.n} al pool?\n\nSe creará un nuevo ciclo. El historial anterior queda guardado.`)) return;
+  const ciclosAnter = (c.ciclos||0) + 1;
+  const today = new Date().toISOString().slice(0,10);
+  const changes = { est:'En pool', sit:'Por validar', mo:'', ciclos:ciclosAnter, dates:{...c.dates||{},'En pool':today} };
+  Object.assign(c, changes); c.dates = changes.dates;
+  setSyncStatus('loading');
+  try { await apiCall('updateCandidate',{id,changes,changedBy:CU.name}); setSyncStatus('ok'); }
+  catch(e) { setSyncStatus('error','⚠ Guardado local'); }
+  toast(c.n, `Reiniciado al pool — ciclo ${ciclosAnter}`, 'ok', '↩');
+  buildSidebar(); renderRecontact();
+}
+
+async function mantenerDescartado(id) {
+  const c = cands.find(x=>x.id===id); if(!c) return;
+  const today = new Date().toISOString().slice(0,10);
+  const changes = { last_recontact_review: today };
+  Object.assign(c, changes);
+  try { await apiCall('updateCandidate',{id,changes,changedBy:CU.name}); } catch(e) {}
+  toast(c.n, 'Marcado como revisado — no aparecerá por otros 6 meses', 'inf', '✓');
+  renderRecontact();
+}
+
 function isStale(c){
   if (!STALE_DETECTION_ENABLED) return false; // pausado globalmente
   if(DISC_S.has(c.est)) return false;
@@ -655,6 +810,7 @@ async function directLogin(id){
 
 function init(){
   try {
+    applyTheme(THEME);
     buildSidebar();
     updateFooter();
     checkStaleNow();
@@ -726,6 +882,21 @@ function updateFooter(){
 
 function switchHat(){ stopNotifPolling(); location.reload(); }
 
+// ── Modo día/noche ───────────────────────────────────────────
+let THEME = localStorage.getItem('st4_theme') || 'dark';
+
+function applyTheme(theme) {
+  THEME = theme;
+  document.body.setAttribute('data-theme', theme);
+  localStorage.setItem('st4_theme', theme);
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) btn.textContent = theme === 'dark' ? '☀ Modo día' : '🌙 Modo noche';
+}
+
+function toggleTheme() {
+  applyTheme(THEME === 'dark' ? 'light' : 'dark');
+}
+
 function nav(view, poolId){
   if(poolId!==undefined) currentPool=poolId;
   document.querySelectorAll('[id^="v-"]').forEach(v=>v.style.display='none');
@@ -761,6 +932,10 @@ function nav(view, poolId){
     document.getElementById('v-review').style.display='flex';
     document.getElementById('ni-review')?.classList.add('active');
     renderReview();
+  } else if(view==='recontact'){
+    document.getElementById('v-recontact').style.display='flex';
+    document.getElementById('ni-recontact')?.classList.add('active');
+    renderRecontact();
   } else if(view==='stale'){
     document.getElementById('v-stale').style.display='flex';
     document.getElementById('ni-stale')?.classList.add('active');
