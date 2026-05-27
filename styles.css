@@ -13,6 +13,87 @@
   --font:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',monospace;
   --r:6px;--r2:10px;--r3:14px;
 }
+
+/* ── MODO DÍA — Paleta Buk/LinkedIn: azul y blanco ── */
+[data-theme="light"]{
+  --bg:#f3f6fb;        /* fondo general — gris azulado muy suave */
+  --bg2:#ffffff;       /* tarjetas, sidebar, topbar */
+  --bg3:#edf1f7;       /* hover, inputs */
+  --bg4:#e2e8f3;       /* elementos secundarios */
+  --border:#d0d9e8;
+  --border2:#b8c6db;
+  --border3:#a0b0cc;
+  --txt:#0a1628;       /* texto principal — azul muy oscuro */
+  --txt2:#4a5c7a;      /* texto secundario */
+  --txt3:#8a9ab8;      /* texto terciario / placeholders */
+  /* Acento principal: azul Buk */
+  --p:#0a66c2;         /* azul LinkedIn/Buk */
+  --p2:#0d7de8;
+  --p3:#3394f0;
+  --pbg:#0a66c210;
+  --pborder:#0a66c230;
+  /* Verde */
+  --green:#057642;
+  --gbg:#05764210;
+  --gborder:#05764230;
+  /* Amber */
+  --amber:#b45309;
+  --abg:#b4530910;
+  --aborder:#b4530930;
+  /* Rojo */
+  --red:#c0392b;
+  --rbg:#c0392b10;
+  --rborder:#c0392b30;
+  /* Azul claro (badges, links) */
+  --blue:#0a66c2;
+  --bbg:#0a66c210;
+  --bborder:#0a66c230;
+  --pink:#9b2c8e;
+  --pinkbg:#9b2c8e10;
+}
+
+/* Ajustes específicos para modo día */
+[data-theme="light"] body { color:var(--txt); background:var(--bg); }
+[data-theme="light"] #sb  { background:var(--bg2); border-right:1px solid var(--border); }
+[data-theme="light"] .topbar { background:var(--bg2); border-bottom:1px solid var(--border); }
+[data-theme="light"] .sb-mark { background:var(--p); }
+[data-theme="light"] .ni:hover { background:var(--bg3); }
+[data-theme="light"] .ni.active { background:var(--pbg); color:var(--p); }
+[data-theme="light"] .tw { background:var(--bg2); }
+[data-theme="light"] thead th { background:var(--bg3); }
+[data-theme="light"] tbody tr:hover { background:var(--bg3); }
+[data-theme="light"] .mc { background:var(--bg2); }
+[data-theme="light"] .mbox { background:var(--bg2); }
+[data-theme="light"] .rev-card { background:var(--bg2); border-color:var(--border); }
+[data-theme="light"] .rev-card:hover { border-color:var(--p); }
+[data-theme="light"] .kcard { background:var(--bg2); }
+[data-theme="light"] .kc { background:var(--bg2); }
+[data-theme="light"] .aib { background:var(--pbg); }
+[data-theme="light"] .pfb { background:var(--bg3); }
+[data-theme="light"] .uf { background:var(--bg3); }
+[data-theme="light"] .uf select,
+[data-theme="light"] .uf input,
+[data-theme="light"] .uf textarea { background:var(--bg2); color:var(--txt); border-color:var(--border2); }
+[data-theme="light"] .fg input,
+[data-theme="light"] .fg select,
+[data-theme="light"] .fg textarea { background:var(--bg3); color:var(--txt); border-color:var(--border2); }
+[data-theme="light"] .fb input,
+[data-theme="light"] .fb select { background:var(--bg2); color:var(--txt); border-color:var(--border2); }
+[data-theme="light"] .switch-btn { color:var(--txt2); border-color:var(--border2); }
+[data-theme="light"] .switch-btn:hover { background:var(--bg3); color:var(--txt); }
+[data-theme="light"] .toast { background:var(--bg2); border-color:var(--border2); box-shadow:0 4px 16px rgba(0,0,0,.12); }
+[data-theme="light"] .lcard { background:var(--bg2); }
+[data-theme="light"] .ul-item { background:var(--bg3); border-color:var(--border); }
+[data-theme="light"] .ul-item:hover,
+[data-theme="light"] .ul-item.sel { border-color:var(--p); background:var(--pbg); }
+[data-theme="light"] #panel { background:var(--bg2); }
+[data-theme="light"] .today-box { background:var(--bg2); }
+[data-theme="light"] .today-card { background:var(--bg3); }
+[data-theme="light"] .today-kanban-card { background:var(--bg3); }
+[data-theme="light"] #setup { background:var(--bg); }
+[data-theme="light"] .setup-card { background:var(--bg2); }
+/* Scrollbar modo día */
+[data-theme="light"] ::-webkit-scrollbar-thumb { background:var(--border2); }
 body{font-family:var(--font);background:var(--bg);color:var(--txt);font-size:13px;line-height:1.5;min-height:100vh;overflow:hidden}
 #app{display:flex;height:100vh;overflow:hidden}
 #sb{width:232px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column}
