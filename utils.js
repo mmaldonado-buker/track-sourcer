@@ -371,6 +371,37 @@ function buildLoginList() {
     </div>`).join('');
 }
 
+function selHat(role) {
+  HAT = role;
+  ['owner','rec','sou'].forEach(id => {
+    const el = document.getElementById('hat-' + id);
+    if (el) el.classList.remove('sel', 'active');
+  });
+  const map = { owner:'owner', recruiter:'rec', sourcer:'sou' };
+  const selected = document.getElementById('hat-' + map[role]);
+  if (selected) selected.classList.add('sel', 'active');
+  const btn = document.getElementById('l-btn');
+  if (btn) btn.disabled = false;
+}
+
+function doLogin() {
+  if (selUserId) {
+    directLogin(selUserId);
+    return;
+  }
+  if (CU) {
+    HAT = HAT || CU.role;
+    document.getElementById('login').style.display='none';
+    document.getElementById('app').style.display='flex';
+    loadLocalConfig();
+    init();
+    if(!IS_OFFLINE) setTimeout(()=>syncNow(), 300);
+    startNotifPolling();
+    return;
+  }
+  alert('Selecciona primero un usuario de la lista.');
+}
+
 async function directLogin(id){
   try {
     CU = USERS.find(u=>u.id===id);
