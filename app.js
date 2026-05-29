@@ -1,13 +1,7 @@
 // SourcerTrack — Punto de entrada principal: estado, navegación y arranque
 // Cargado ÚLTIMO
 
-// ── Estado global de la aplicación ─────────────────────────
-let _notifLastCheck = '';     // ISO timestamp del último poll exitoso
-let CU = null, HAT = '', API_KEY = '';
-let pools = [], cands = [];
-let currentPool = null, pipeStageF = '';
-let thresholds = {}, emailMap = {};
-// ─────────────────────────────────────────────────────────────
+// Estado global declarado en config.js y utils.js.
 
 function openModal(id){ document.getElementById(id).classList.add('open'); }
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
