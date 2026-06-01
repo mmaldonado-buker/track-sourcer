@@ -27,6 +27,7 @@ function openPanel(id){
         <div style="font-size:11px;color:var(--txt2)">${c.emp||'—'} · ${c.s||'?'}</div></div>
       </div>
       <div style="display:flex;gap:5px;align-items:center">
+        ${c.source === 'marca_empleadora' ? '<span style="font-size:10px;background:rgba(245,158,11,.12);color:var(--amber);border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2px 8px;font-weight:600">📢 Marca Empleadora</span>' : '<span style="font-size:10px;background:var(--pbg);color:var(--p2);border:1px solid var(--pborder);border-radius:20px;padding:2px 8px;font-weight:600">🎯 Hunting</span>'}
         <button class="btn btn-sm btn-danger" style="font-size:10px;padding:3px 8px" onclick="deleteCandidate(${c.id})" title="Eliminar candidato permanentemente">🗑 Eliminar</button>
         <button class="pc" onclick="closePanel()">✕</button>
       </div>
@@ -71,18 +72,25 @@ function openPanel(id){
 function closePanel(){ document.getElementById('panel').classList.remove('open'); }
 
 function ownerForm(c,salOk,disc){
-  const poolOptions = pools.map(p => `<option value="${p.id}" ${p.id == c.pid ? 'selected' : ''}>${p.name}</option>`).join('');
+  const poolOptions = pools.map(p => '<option value="' + p.id + '" ' + (p.id == c.pid ? 'selected' : '') + '>' + p.name + '</option>').join('');
+  const estOptions  = [...STAGES,'Descartado','No interesado'].map(s => '<option value="' + s + '" ' + (s === c.est ? 'selected' : '') + '>' + s + '</option>').join('');
+  const sitOptions  = ['Aprobado','Por revisar','Rechazado'].map(s => '<option value="' + s + '" ' + (s === c.sit ? 'selected' : '') + '>' + s + '</option>').join('');
   return `<div class="psec"><div class="pst">Actualizar (Owner/Supervisor)</div><div class="uf">
     <label style="color:var(--p2); font-weight:600;">Pool / Categoría del Candidato</label>
     <select id="u-po" style="margin-bottom:12px; border-color:var(--pborder); background:var(--bg3);">${poolOptions}</select>
     <label>Estado pipeline</label>
-    <select id="u-est">${[...STAGES,'Descartado','No interesado'].map(s=>'<option ' + s===c.est?'selected':'' + '>' + s + '</option>').join('')}</select>
+    <select id="u-est">${estOptions}</select>
     <label>Situación</label>
-    <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>'<option ' + s===c.sit?'selected':'' + '>' + s + '</option>').join('')}</select>
+    <select id="u-sit">${sitOptions}</select>
+    <label>Fuente del candidato</label>
+    <select id="u-source">
+      <option value="hunting" ${(c.source||'hunting')==='hunting' ? 'selected' : ''}>🎯 Hunting</option>
+      <option value="marca_empleadora" ${c.source==='marca_empleadora' ? 'selected' : ''}>📢 Marca Empleadora</option>
+    </select>
     <label>Equipo sugerido (texto libre)</label>
     <input type="text" id="u-eq" value="${c.eq||''}" placeholder="DevOps, DevEx AI...">
-    ${salOk?'<label>Rango salarial</label><input type="text" id="u-sal" value="' + c.sal||'' + '" placeholder="Expectativa salarial">':
-    `<div class="ro">Rango salarial — disponible desde Screening</div>`}
+    ${salOk?'<label>Rango salarial</label><input type="text" id="u-sal" value="' + (c.sal||'') + '" placeholder="Expectativa salarial">':
+    '<div class="ro">Rango salarial — disponible desde Screening</div>'}
     <label>Feedback</label>
     <textarea id="u-fb">${c.fb||''}</textarea>
     <button type="button" onclick="autoCategorizarDescarte(${c.id})" style="margin-top:5px; margin-bottom: 10px; background:var(--pbg); color:var(--p2); border:1px solid var(--pborder); border-radius:4px; padding:6px; font-size:11px; cursor:pointer; width: 100%;">
@@ -122,7 +130,7 @@ function recruiterForm(c){
       Candidato rechazado — no avanzará en el proceso.
     </div>`}
     <label>Decisión</label>
-    <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s=>'<option ' + s===c.sit?'selected':'' + '>' + s + '</option>').join('')}</select>
+    <select id="u-sit">${['Aprobado','Por revisar','Rechazado'].map(s => '<option value="' + s + '" ' + (s === c.sit ? 'selected' : '') + '>' + s + '</option>').join('')}</select>
     <label>Comentarios</label>
     <textarea id="u-fb" placeholder="Justificación o notas para el sourcer...">${c.fb||''}</textarea>
     <button class="btn btn-p btn-sm" style="width:100%;justify-content:center" onclick="saveUpdate(${c.id},'recruiter')">Guardar decisión</button>
@@ -161,7 +169,7 @@ function sourcerForm(c,salOk){
     </div>`}
     <label>Estado pipeline</label>
     <select id="u-est" ${(isRejected || needsApproval)?'disabled':''}>
-      ${stagesAllowed.map(s=>'<option ' + s===c.est?'selected':'' + '>' + s + '</option>').join('')}
+      ${stagesAllowed.map(s => '<option value="' + s + '" ' + (s === c.est ? 'selected' : '') + '>' + s + '</option>').join('')}
     </select>
     ${needsApproval?'<div style="font-size:10px;color:var(--txt3);margin-top:-4px;margin-bottom:8px">El estado cambia cuando el recruiter apruebe o se desactive la ZDP.</div>':''}
     <label>Equipo sugerido</label>
@@ -287,6 +295,8 @@ async function saveUpdate(id, role) {
     if(role!=='sourcer') changes.mo = document.getElementById('u-mo')?.value || c.mo;
     const se = document.getElementById('u-sal'); if(se) changes.sal = se.value;
     const cve = document.getElementById('u-cv'); if(cve) changes.cv = cve.value.trim();
+    // Campo source (hunting vs marca_empleadora) — solo editable por owner/supervisor
+    const srcEl = document.getElementById('u-source'); if(srcEl) changes.source = srcEl.value;
   }
 
   Object.assign(c, changes);
