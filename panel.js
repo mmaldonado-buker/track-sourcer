@@ -52,6 +52,18 @@ function openPanel(id){
       }</span></div>
     </div>
     ${c.fb?'<div class="psec"><div class="pst">Feedback</div><div class="pfb">"' + c.fb + '"</div></div>':''}
+    ${normalizeEst(c.est) === 'Contactado' && !c.respondio && !DISC_S.has(c.est) ? `
+    <div style="margin-bottom:12px;padding:11px 13px;background:var(--bbg);border:1px solid var(--bborder);border-radius:var(--r2)">
+      <div style="font-size:12px;font-weight:600;color:var(--blue);margin-bottom:6px">📩 ¿Respondió el candidato?</div>
+      <div style="font-size:11px;color:var(--txt2);margin-bottom:9px">Registra si el candidato contestó tu mensaje. Esto cuenta para la tasa de respuesta.</div>
+      <div style="display:flex;gap:7px">
+        <button class="btn btn-green btn-sm" style="flex:1;justify-content:center" onclick="registrarRespuesta(${c.id}, true)">✓ Sí respondió</button>
+        <button class="btn btn-danger btn-sm" style="flex:1;justify-content:center" onclick="registrarRespuesta(${c.id}, false)">✕ No respondió / Descartar</button>
+      </div>
+    </div>` : normalizeEst(c.est) === 'Contactado' && c.respondio ? `
+    <div style="margin-bottom:12px;padding:8px 11px;background:var(--gbg);border:1px solid var(--gborder);border-radius:var(--r);font-size:11px;color:var(--green)">
+      ✓ Respondió el ${fmtDate(c.date_Respuesta) || 'fecha no registrada'}
+    </div>` : ''}
     ${editHTML}
     ${API_KEY?'<div class="aib"><div class="ait">✦ Análisis IA (Gemini)</div><div id="aio-' + c.id + '" class="aio" style="color:var(--txt3)">Haz clic para analizar con Google Gemini.</div><button class="btn btn-sm" style="margin-top:7px;width:100%;justify-content:center;border-color:var(--pborder);color:var(--p2)" onclick="aiCand(' + c.id + ')">✦ Analizar</button></div>':''}`;
   document.getElementById('panel').classList.add('open');
@@ -408,3 +420,53 @@ async function saveCand(){
 // ╔══════════════════════════════════════════════════════════╗
 // ║  13. MÉTRICAS Y ANALYTICS                               ║
 // ╚══════════════════════════════════════════════════════════╝
+
+// ── Tasa de respuesta ────────────────────────────────────────
+async function registrarRespuesta(id, respondio) {
+  const c = cands.find(x => x.id === id); if (!c) return;
+
+  if (respondio) {
+    // Respondió → solo registrar, continúa en el proceso normal
+    const today = new Date().toISOString().slice(0, 10);
+    const changes = { respondio: true, date_Respuesta: today };
+    Object.assign(c, changes);
+    setSyncStatus('loading');
+    try { await apiCall('updateCandidate', { id, changes, changedBy: CU.name }); setSyncStatus('ok'); }
+    catch(e) { setSyncStatus('error', '⚠ Guardado local'); }
+    toast(c.n, 'Respuesta registrada ✓', 'ok', '📩');
+    openPanel(id); // re-render panel
+
+  } else {
+    // No respondió / no le interesa → mostrar opciones de descarte
+    const mo = prompt(
+      `¿Por qué no continúa ${c.n}?\n\nEscribe el motivo:\n` +
+      '1 → Sin interés\n2 → No contesta\n3 → Renta\n4 → Se bajó del proceso\n5 → Otro'
+    );
+    if (mo === null) return; // canceló
+
+    const motivoMap = {
+      '1': 'Sin interés', '2': 'No contesta',
+      '3': 'Renta',       '4': 'Se bajó del proceso'
+    };
+    const motivo = motivoMap[mo.trim()] || (mo.trim() || 'Sin interés');
+    const today  = new Date().toISOString().slice(0, 10);
+
+    // Respondió = true (sí contestó, pero negativamente) + descarte
+    const changes = {
+      respondio:      true,
+      date_Respuesta: today,
+      est:            'Descartado',
+      mo:             motivo,
+      dates:          { ...(c.dates || {}), Descartado: today }
+    };
+    Object.assign(c, changes); c.dates = changes.dates;
+    setSyncStatus('loading');
+    try { await apiCall('updateCandidate', { id, changes, changedBy: CU.name }); setSyncStatus('ok'); }
+    catch(e) { setSyncStatus('error', '⚠ Guardado local'); }
+    toast(c.n, `Descartado · ${motivo}`, 'wrn', '✕');
+    closePanel();
+    buildSidebar();
+    if (document.getElementById('v-pool')?.style.display === 'flex') renderPool();
+    if (document.getElementById('v-review')?.style.display === 'flex') renderReview();
+  }
+}
