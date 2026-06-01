@@ -569,8 +569,9 @@ function getLastNMonths(n) {
 }
 
 // Comprueba si la fecha de una etapa cae en el rango dado
-function dateInRange(dateStr, start, end) {
+function dateInRange(dateStr, start, end, anyDate) {
   if (!dateStr) return false;
+  if (anyDate) return true; // modo "solo verificar que existe fecha"
   const d = new Date(dateStr);
   return d >= start && d <= end;
 }
@@ -589,7 +590,13 @@ function calcSourcerMetrics(sourcerName, start, end, candList) {
   const enReferencias= mine.filter(c => dateInRange(c.dates?.Referencias, start, end)).length;
   const contratados  = mine.filter(c => dateInRange(c.dates?.Contratado, start, end)).length;
 
-  // Tasas de conversión (evitar división por 0)
+  // Tasa de respuesta: de los contactados en el período, cuántos respondieron
+  const contactadosPeriodo   = mine.filter(c => dateInRange(c.dates?.Contactado, start, end));
+  const respondieronPeriodo  = contactadosPeriodo.filter(c => c.respondio === true);
+  const tasaRespuesta        = contactadosPeriodo.length > 0
+    ? Math.round((respondieronPeriodo.length / contactadosPeriodo.length) * 100)
+    : null;
+
   const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) : null;
 
   return {
@@ -597,10 +604,12 @@ function calcSourcerMetrics(sourcerName, start, end, candList) {
     agregados,    aprobados,   contactados,
     entrevTR,     entrevEM,    enMision,
     enReferencias,contratados,
-    tasaTR:       pct(entrevTR,    contactados),  // contactados → TR
-    tasaEM:       pct(entrevEM,    entrevTR),      // TR → EM
-    tasaMision:   pct(enMision,    entrevEM),      // EM → Misión
-    tasaContrat:  pct(contratados, contactados),   // contactados → contratado (global)
+    respondieron: respondieronPeriodo.length,
+    tasaRespuesta,
+    tasaTR:       pct(entrevTR,    contactados),
+    tasaEM:       pct(entrevEM,    entrevTR),
+    tasaMision:   pct(enMision,    entrevEM),
+    tasaContrat:  pct(contratados, contactados),
   };
 }
 
@@ -643,9 +652,28 @@ function renderMetrics() {
 
   const fmtPct = v => v === null ? '<span style="color:var(--txt3)">—</span>'
                                   : `<span style="color:${v>=30?'var(--green)':v>=15?'var(--amber)':'var(--red)'}; font-weight:600">${v}%</span>`;
+  const fmtResp = v => v === null ? '<span style="color:var(--txt3)">—</span>'
+                                  : `<span style="color:${v>=50?'var(--green)':v>=25?'var(--amber)':'var(--red)'};font-weight:600">${v}%</span>`;
   const fmtN   = (v, dim) => v === 0
     ? `<span style="color:var(--txt3)">0</span>`
     : `<span style="color:${dim};font-weight:600;font-family:var(--mono)">${v}</span>`;
+
+  // ── Métricas por pool ─────────────────────────────────────
+  function calcPoolMetrics(sourcerName) {
+    const mine = cands.filter(c => c.src === sourcerName && canSeeCandidate(c));
+    return pools.map(p => {
+      const inPool = mine.filter(c => c.pid == p.id);
+      if (!inPool.length) return null;
+      const byStage = {};
+      STAGES.forEach(s => { byStage[s] = inPool.filter(c => normalizeEst(c.est) === s).length; });
+      byStage['Descartado'] = inPool.filter(c => DISC_S.has(c.est)).length;
+      const activos = inPool.filter(c => isActiveInPipeline(c) || c.est === 'Por contactar').length;
+      const contactados = inPool.filter(c => dateInRange(c.dates?.Contactado, null, null, true)).length;
+      const respondieron = inPool.filter(c => c.respondio === true).length;
+      const tasaResp = contactados > 0 ? Math.round(respondieron/contactados*100) : null;
+      return { pool: p, total: inPool.length, activos, byStage, tasaResp, respondieron, contactados };
+    }).filter(Boolean);
+  }
 
   // ── HTML ──────────────────────────────────────────────────
   el.innerHTML = `
@@ -663,63 +691,112 @@ function renderMetrics() {
       const srcRows = rows[si];
       const user    = USERS.find(u => u.name === src);
       const color   = user?.color || 'var(--p)';
-
-      // Resumen del período actual para el header
-      const cur = srcRows[srcRows.length - 1];
+      const cur     = srcRows[srcRows.length - 1];
+      const poolData = calcPoolMetrics(src);
 
       return `
-      <div style="margin-bottom:24px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-          <div style="width:26px;height:26px;border-radius:50%;background:${color}22;color:${color};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">
+      <div style="margin-bottom:28px;border:1px solid var(--border);border-radius:var(--r2);overflow:hidden">
+
+        <!-- Header sourcer -->
+        <div style="padding:12px 14px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="width:28px;height:28px;border-radius:50%;background:${color}22;color:${color};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">
             ${src.split(' ').map(w=>w[0]).join('').slice(0,2)}
           </div>
-          <span style="font-size:13px;font-weight:600">${src}</span>
-          <span style="font-size:10px;color:var(--txt3);margin-left:4px">
-            esta semana: ${cur.entrevTR} TR · ${cur.entrevEM} EM · ${cur.contratados} contratados
-          </span>
+          <span style="font-size:13px;font-weight:700">${src}</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-left:4px">
+            <span style="font-size:10px;color:var(--txt3);background:var(--bg4);padding:2px 7px;border-radius:8px">
+              Contactados: <strong style="color:var(--txt2)">${cur.contactados}</strong>
+            </span>
+            <span style="font-size:10px;color:var(--txt3);background:var(--bg4);padding:2px 7px;border-radius:8px">
+              TR: <strong style="color:var(--p2)">${cur.entrevTR}</strong>
+            </span>
+            <span style="font-size:10px;background:${cur.tasaRespuesta===null?'var(--bg4)':cur.tasaRespuesta>=50?'var(--gbg)':cur.tasaRespuesta>=25?'var(--abg)':'var(--rbg)'};color:${cur.tasaRespuesta===null?'var(--txt3)':cur.tasaRespuesta>=50?'var(--green)':cur.tasaRespuesta>=25?'var(--amber)':'var(--red)'};padding:2px 7px;border-radius:8px;font-weight:600">
+              📩 Respuesta: ${cur.tasaRespuesta !== null ? cur.tasaRespuesta+'%' : '—'}
+            </span>
+          </div>
         </div>
 
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:700px">
+        <!-- Tabla períodos -->
+        <div style="overflow-x:auto;padding:12px 14px">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:820px">
             <thead>
               <tr>
                 <th style="text-align:left;padding:6px 10px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);white-space:nowrap">Período</th>
                 <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Agregados</th>
                 <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Contactados</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">📩 Respondieron</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">% Respuesta</th>
                 <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--p2);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Entrev. TR</th>
                 <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--pink);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Entrev. EM</th>
                 <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--amber);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Misión</th>
-                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Referencias</th>
                 <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--green);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">Contratados</th>
                 <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">% TR</th>
-                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">% EM</th>
-                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">% Misión</th>
-                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--green);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">% Contrat.</th>
+                <th style="padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center">% Contrat.</th>
               </tr>
             </thead>
             <tbody>
               ${srcRows.map((m, pi) => {
                 const isLatest = pi === srcRows.length - 1;
-                const bg = isLatest ? 'background:rgba(124,110,240,.06);' : '';
+                const bg = isLatest ? 'background:rgba(79,126,248,.05);' : '';
                 const fw = isLatest ? 'font-weight:600;' : '';
                 return `<tr style="${bg}border-bottom:1px solid var(--border)">
                   <td style="padding:7px 10px;${fw}color:${isLatest?'var(--txt)':'var(--txt2)'};white-space:nowrap">${periods[pi].label}${isLatest?' <span style="font-size:9px;color:var(--p2);font-weight:600">← actual</span>':''}</td>
                   <td style="padding:7px 8px;text-align:center">${fmtN(m.agregados,'var(--txt)')}</td>
                   <td style="padding:7px 8px;text-align:center">${fmtN(m.contactados,'var(--txt2)')}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtN(m.respondieron,'var(--blue)')}</td>
+                  <td style="padding:7px 8px;text-align:center">${fmtResp(m.tasaRespuesta)}</td>
                   <td style="padding:7px 8px;text-align:center">${fmtN(m.entrevTR,'var(--p2)')}</td>
                   <td style="padding:7px 8px;text-align:center">${fmtN(m.entrevEM,'var(--pink)')}</td>
                   <td style="padding:7px 8px;text-align:center">${fmtN(m.enMision,'var(--amber)')}</td>
-                  <td style="padding:7px 8px;text-align:center">${fmtN(m.enReferencias,'var(--blue)')}</td>
                   <td style="padding:7px 8px;text-align:center">${fmtN(m.contratados,'var(--green)')}</td>
                   <td style="padding:7px 8px;text-align:center">${fmtPct(m.tasaTR)}</td>
-                  <td style="padding:7px 8px;text-align:center">${fmtPct(m.tasaEM)}</td>
-                  <td style="padding:7px 8px;text-align:center">${fmtPct(m.tasaMision)}</td>
                   <td style="padding:7px 8px;text-align:center">${fmtPct(m.tasaContrat)}</td>
                 </tr>`;
               }).join('')}
             </tbody>
           </table>
         </div>
+
+        <!-- Métricas por pool -->
+        ${poolData.length > 0 ? `
+        <div style="padding:12px 14px;border-top:1px solid var(--border)">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--txt3);margin-bottom:10px">
+            Distribución por pool
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            ${poolData.map(pd => `
+            <div style="flex:1;min-width:160px;max-width:240px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:10px 12px">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+                <div style="width:8px;height:8px;border-radius:50%;background:${pd.pool.color};flex-shrink:0"></div>
+                <span style="font-size:12px;font-weight:700">${pd.pool.name}</span>
+                <span style="font-size:10px;color:var(--txt3);margin-left:auto">${pd.total} total</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:3px;font-size:11px">
+                ${[
+                  ['En pool', 'var(--txt3)', pd.byStage['En pool']],
+                  ['Por contactar', 'var(--p2)', pd.byStage['Por contactar']],
+                  ['Contactado', 'var(--blue)', pd.byStage['Contactado']],
+                  ['Screening', 'var(--p3)', pd.byStage['Screening']],
+                  ['Entrevista TR', '#a78bfa', pd.byStage['Entrevista TR']],
+                  ['Entrevista EM', 'var(--pink)', pd.byStage['Entrevista EM']],
+                  ['Misión', 'var(--amber)', pd.byStage['Misión']],
+                  ['Descartado', 'var(--txt3)', pd.byStage['Descartado']],
+                ].filter(([,, n]) => n > 0).map(([label, color, n]) => `
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0">
+                    <span style="color:var(--txt2)">${label}</span>
+                    <span style="color:${color};font-weight:600;font-family:var(--mono)">${n}</span>
+                  </div>
+                `).join('')}
+              </div>
+              ${pd.tasaResp !== null ? `
+              <div style="margin-top:7px;padding-top:7px;border-top:1px solid var(--border);font-size:10px;display:flex;justify-content:space-between">
+                <span style="color:var(--txt3)">📩 Tasa respuesta</span>
+                <span style="color:${pd.tasaResp>=50?'var(--green)':pd.tasaResp>=25?'var(--amber)':'var(--red)'};font-weight:700">${pd.tasaResp}%</span>
+              </div>` : ''}
+            </div>`).join('')}
+          </div>
+        </div>` : ''}
+
       </div>`;
     }).join('')}
 
@@ -727,10 +804,10 @@ function renderMetrics() {
     <div style="margin-top:8px;padding-top:16px;border-top:1px solid var(--border)">
       <div style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--txt2)">Resumen equipo — período actual (${periods[periods.length-1].label})</div>
       <div class="mg">
-        <div class="mc"><div class="mcl">Entrevistas TR</div><div class="mcv mv-p">${rows.reduce((s,r)=>s+r[r.length-1].entrevTR,0)}</div><div class="mcs">esta semana</div></div>
-        <div class="mc"><div class="mcl">Entrevistas EM</div><div class="mcv" style="color:var(--pink)">${rows.reduce((s,r)=>s+r[r.length-1].entrevEM,0)}</div><div class="mcs">esta semana</div></div>
-        <div class="mc"><div class="mcl">En Misión</div><div class="mcv mv-a">${rows.reduce((s,r)=>s+r[r.length-1].enMision,0)}</div><div class="mcs">esta semana</div></div>
-        <div class="mc"><div class="mcl">Contratados</div><div class="mcv mv-g">${rows.reduce((s,r)=>s+r[r.length-1].contratados,0)}</div><div class="mcs">esta semana</div></div>
+        <div class="mc"><div class="mcl">Entrevistas TR</div><div class="mcv mv-p">${rows.reduce((s,r)=>s+r[r.length-1].entrevTR,0)}</div><div class="mcs">este período</div></div>
+        <div class="mc"><div class="mcl">Entrevistas EM</div><div class="mcv" style="color:var(--pink)">${rows.reduce((s,r)=>s+r[r.length-1].entrevEM,0)}</div><div class="mcs">este período</div></div>
+        <div class="mc"><div class="mcl">En Misión</div><div class="mcv mv-a">${rows.reduce((s,r)=>s+r[r.length-1].enMision,0)}</div><div class="mcs">este período</div></div>
+        <div class="mc"><div class="mcl">Contratados</div><div class="mcv mv-g">${rows.reduce((s,r)=>s+r[r.length-1].contratados,0)}</div><div class="mcs">este período</div></div>
       </div>
     </div>` : ''}
   `;
@@ -743,8 +820,8 @@ function exportMetricsCSV() {
   const sourcers = getVisibleSourcers();
   const allCands = cands.filter(c => canSeeCandidate(c));
 
-  const headers = ['Sourcer','Período','Agregados','Contactados','Entrev.TR','Entrev.EM',
-                   'Misión','Referencias','Contratados','%TR','%EM','%Misión','%Contrat.'];
+  const headers = ['Sourcer','Período','Agregados','Contactados','Respondieron','%Respuesta',
+                   'Entrev.TR','Entrev.EM','Misión','Referencias','Contratados','%TR','%EM','%Misión','%Contrat.'];
   const csvRows = [headers];
 
   sourcers.forEach(src => {
@@ -752,6 +829,7 @@ function exportMetricsCSV() {
       const m = calcSourcerMetrics(src, p.start, p.end, allCands);
       csvRows.push([
         src, p.label, m.agregados, m.contactados,
+        m.respondieron, m.tasaRespuesta ?? '',
         m.entrevTR, m.entrevEM, m.enMision, m.enReferencias, m.contratados,
         m.tasaTR ?? '', m.tasaEM ?? '', m.tasaMision ?? '', m.tasaContrat ?? ''
       ]);
