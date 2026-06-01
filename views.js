@@ -578,7 +578,8 @@ function dateInRange(dateStr, start, end, anyDate) {
 
 // Métricas de un sourcer en un rango de fechas
 function calcSourcerMetrics(sourcerName, start, end, candList) {
-  const mine = candList.filter(c => c.src === sourcerName);
+  // SOLO candidatos de hunting — ME tiene sus propias métricas separadas
+  const mine = candList.filter(c => c.src === sourcerName && c.source !== 'marca_empleadora');
 
   const agregados    = mine.filter(c => dateInRange(c.dt || c.dates?.Contactado, start, end)).length;
   const aprobados    = mine.filter(c => normalizeSit(c.sit) === 'Aprobado' &&
@@ -594,23 +595,117 @@ function calcSourcerMetrics(sourcerName, start, end, candList) {
   const contactadosPeriodo   = mine.filter(c => dateInRange(c.dates?.Contactado, start, end));
   const respondieronPeriodo  = contactadosPeriodo.filter(c => c.respondio === true);
   const tasaRespuesta        = contactadosPeriodo.length > 0
-    ? Math.round((respondieronPeriodo.length / contactadosPeriodo.length) * 100)
-    : null;
+    ? Math.round((respondieronPeriodo.length / contactadosPeriodo.length) * 100) : null;
 
   const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) : null;
 
   return {
-    sourcer:      sourcerName,
-    agregados,    aprobados,   contactados,
-    entrevTR,     entrevEM,    enMision,
-    enReferencias,contratados,
-    respondieron: respondieronPeriodo.length,
-    tasaRespuesta,
-    tasaTR:       pct(entrevTR,    contactados),
-    tasaEM:       pct(entrevEM,    entrevTR),
-    tasaMision:   pct(enMision,    entrevEM),
-    tasaContrat:  pct(contratados, contactados),
+    sourcer: sourcerName, agregados, aprobados, contactados,
+    entrevTR, entrevEM, enMision, enReferencias, contratados,
+    respondieron: respondieronPeriodo.length, tasaRespuesta,
+    tasaTR: pct(entrevTR, contactados), tasaEM: pct(entrevEM, entrevTR),
+    tasaMision: pct(enMision, entrevEM), tasaContrat: pct(contratados, contactados),
   };
+}
+
+// ── Métricas Marca Empleadora ────────────────────────────────
+function calcMEMetrics(start, end, candList) {
+  const me = candList.filter(c => c.source === 'marca_empleadora');
+  const enPeriodo   = me.filter(c => dateInRange(c.dt || c.dates?.['En pool'], start, end)).length;
+  const contactados = me.filter(c => dateInRange(c.dates?.Contactado, start, end)).length;
+  const screening   = me.filter(c => dateInRange(c.dates?.Screening, start, end)).length;
+  const entrevTR    = me.filter(c => dateInRange(c.dates?.['Entrevista TR'] || c.dates?.['Entrevista Inicial'], start, end)).length;
+  const entrevEM    = me.filter(c => dateInRange(c.dates?.['Entrevista EM'], start, end)).length;
+  const contratados = me.filter(c => dateInRange(c.dates?.Contratado, start, end)).length;
+  const contactadosPeriodo = me.filter(c => dateInRange(c.dates?.Contactado, start, end));
+  const respondieron = contactadosPeriodo.filter(c => c.respondio === true).length;
+  const tasaRespuesta = contactadosPeriodo.length > 0
+    ? Math.round((respondieron / contactadosPeriodo.length) * 100) : null;
+  const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) : null;
+  const sourcers = [...new Set(me.map(c => c.src).filter(Boolean))];
+  const porSourcer = sourcers.map(src => {
+    const mine = me.filter(c => c.src === src);
+    const cont = mine.filter(c => dateInRange(c.dates?.Contactado, start, end)).length;
+    const tr   = mine.filter(c => dateInRange(c.dates?.['Entrevista TR'] || c.dates?.['Entrevista Inicial'], start, end)).length;
+    const contr= mine.filter(c => dateInRange(c.dates?.Contratado, start, end)).length;
+    const resp = mine.filter(c => c.respondio === true && dateInRange(c.dates?.Contactado, start, end));
+    return { src, total: mine.length, cont, tr, contr, resp: resp.length,
+             tasaResp: cont > 0 ? Math.round(resp.length/cont*100) : null };
+  });
+  return { total: me.length, enPeriodo, contactados, screening, entrevTR, entrevEM,
+           contratados, respondieron, tasaRespuesta, porSourcer,
+           tasaTR: pct(entrevTR, contactados), tasaContrat: pct(contratados, contactados) };
+}
+
+function renderMEMetrics(mode, allCands) {
+  const canSeeME = CU.id === 'JQ' || CU.id === 'EF' || HAT === 'owner';
+  if (!canSeeME) return '';
+  const nPeriods = mode === 'weekly' ? 6 : 4;
+  const periods  = mode === 'weekly' ? getLastNWeeks(nPeriods) : getLastNMonths(nPeriods);
+  const allME    = allCands.filter(c => c.source === 'marca_empleadora');
+  if (!allME.length) {
+    return '<div style="margin-top:24px;padding:16px;background:var(--bg2);border:1px solid var(--aborder);border-radius:var(--r2);font-size:12px;color:var(--txt3);text-align:center">'
+      + '📢 Sin candidatos de Marca Empleadora registrados.<br>'
+      + '<span style="font-size:11px">Cuando agregues candidatos con fuente = "Marca Empleadora" aparecerán aquí.</span></div>';
+  }
+  const rows = periods.map(p => calcMEMetrics(p.start, p.end, allME));
+  const cur  = rows[rows.length - 1];
+  const fmtN = (v, col) => v === 0 ? '<span style="color:var(--txt3)">0</span>'
+    : '<span style="color:' + col + ';font-weight:600;font-family:var(--mono)">' + v + '</span>';
+  const fmtPct = v => v === null ? '<span style="color:var(--txt3)">—</span>'
+    : '<span style="color:' + (v>=30?'var(--green)':v>=15?'var(--amber)':'var(--red)') + ';font-weight:600">' + v + '%</span>';
+
+  return '<div style="margin-top:28px;padding-top:22px;border-top:2px solid var(--aborder)">'
+    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'
+    + '<span style="font-size:16px">📢</span>'
+    + '<span style="font-size:14px;font-weight:700;letter-spacing:-.02em">Marca Empleadora</span>'
+    + '<span style="font-size:10px;color:var(--amber);background:var(--abg);border:1px solid var(--aborder);border-radius:20px;padding:2px 9px;font-weight:600">'
+    + allME.length + ' candidatos totales</span></div>'
+    + '<div class="mg" style="margin-bottom:16px">'
+    + '<div class="mc"><div class="mcl">Ingresaron</div><div class="mcv mv-a">' + cur.enPeriodo + '</div><div class="mcs">este período</div></div>'
+    + '<div class="mc"><div class="mcl">Contactados</div><div class="mcv" style="color:var(--blue)">' + cur.contactados + '</div><div class="mcs">este período</div></div>'
+    + '<div class="mc"><div class="mcl">Entrevistas TR</div><div class="mcv mv-p">' + cur.entrevTR + '</div><div class="mcs">este período</div></div>'
+    + '<div class="mc"><div class="mcl">Tasa respuesta</div><div class="mcv" style="color:' + (cur.tasaRespuesta===null?'var(--txt3)':cur.tasaRespuesta>=50?'var(--green)':cur.tasaRespuesta>=25?'var(--amber)':'var(--red)') + '">'
+    + (cur.tasaRespuesta !== null ? cur.tasaRespuesta+'%' : '—') + '</div><div class="mcs">ME contactados</div></div>'
+    + '</div>'
+    + '<div style="overflow-x:auto;margin-bottom:18px"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:640px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden"><thead><tr>'
+    + ['Período','Ingresaron','Contactados','Screening','Entrev. TR','Entrev. EM','Contratados','Tasa resp.','% TR'].map(h =>
+        '<th style="padding:7px 10px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt3);background:var(--bg3);border-bottom:1px solid var(--border);text-align:center;white-space:nowrap">' + h + '</th>'
+      ).join('') + '</tr></thead><tbody>'
+    + rows.map((m, pi) => {
+        const isL = pi === rows.length - 1;
+        return '<tr style="' + (isL?'background:rgba(245,158,11,.05);':'') + 'border-bottom:1px solid var(--border)">'
+          + '<td style="padding:6px 10px;font-size:11px;color:' + (isL?'var(--txt)':'var(--txt2)') + ';font-weight:' + (isL?'600':'400') + ';white-space:nowrap">'
+          + periods[pi].label + (isL ? ' <span style="font-size:9px;color:var(--amber);font-weight:600">← actual</span>' : '') + '</td>'
+          + '<td style="padding:6px 8px;text-align:center">' + fmtN(m.enPeriodo,'var(--amber)') + '</td>'
+          + '<td style="padding:6px 8px;text-align:center">' + fmtN(m.contactados,'var(--blue)') + '</td>'
+          + '<td style="padding:6px 8px;text-align:center">' + fmtN(m.screening,'var(--p3)') + '</td>'
+          + '<td style="padding:6px 8px;text-align:center">' + fmtN(m.entrevTR,'var(--p2)') + '</td>'
+          + '<td style="padding:6px 8px;text-align:center">' + fmtN(m.entrevEM,'var(--pink)') + '</td>'
+          + '<td style="padding:6px 8px;text-align:center">' + fmtN(m.contratados,'var(--green)') + '</td>'
+          + '<td style="padding:6px 8px;text-align:center">' + fmtPct(m.tasaRespuesta) + '</td>'
+          + '<td style="padding:6px 8px;text-align:center">' + fmtPct(m.tasaTR) + '</td>'
+          + '</tr>';
+      }).join('') + '</tbody></table></div>'
+    + (cur.porSourcer.length > 0 ?
+        '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--txt3);margin-bottom:9px">Desglose por sourcer — período actual</div>'
+        + '<div style="display:flex;gap:9px;flex-wrap:wrap">'
+        + cur.porSourcer.map(s => {
+            const user = USERS.find(u => u.name === s.src);
+            const col  = user?.color || 'var(--amber)';
+            return '<div style="flex:1;min-width:140px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:11px 13px">'
+              + '<div style="display:flex;align-items:center;gap:7px;margin-bottom:8px">'
+              + '<div style="width:22px;height:22px;border-radius:50%;background:' + col + '22;color:' + col + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">'
+              + s.src.split(' ').map(w=>w[0]).join('').slice(0,2) + '</div>'
+              + '<span style="font-size:12px;font-weight:600">' + s.src.split(' ')[0] + '</span></div>'
+              + '<div style="font-size:11px;display:flex;flex-direction:column;gap:3px">'
+              + '<div style="display:flex;justify-content:space-between"><span style="color:var(--txt3)">Total ME</span><span style="font-weight:600;font-family:var(--mono)">' + s.total + '</span></div>'
+              + '<div style="display:flex;justify-content:space-between"><span style="color:var(--txt3)">Contactados</span><span style="color:var(--blue);font-weight:600;font-family:var(--mono)">' + s.cont + '</span></div>'
+              + '<div style="display:flex;justify-content:space-between"><span style="color:var(--txt3)">TR</span><span style="color:var(--p2);font-weight:600;font-family:var(--mono)">' + s.tr + '</span></div>'
+              + (s.tasaResp !== null ? '<div style="display:flex;justify-content:space-between;padding-top:5px;border-top:1px solid var(--border);margin-top:3px"><span style="color:var(--txt3)">📩 Respuesta</span><span style="color:' + (s.tasaResp>=50?'var(--green)':s.tasaResp>=25?'var(--amber)':'var(--red)') + ';font-weight:700">' + s.tasaResp + '%</span></div>' : '')
+              + '</div></div>';
+          }).join('') + '</div>' : '')
+    + '</div>';
 }
 
 // Lista de sourcers visibles según el rol actual
@@ -810,7 +905,7 @@ function renderMetrics() {
         <div class="mc"><div class="mcl">Contratados</div><div class="mcv mv-g">${rows.reduce((s,r)=>s+r[r.length-1].contratados,0)}</div><div class="mcs">este período</div></div>
       </div>
     </div>` : ''}
-  `;
+  ` + renderMEMetrics(mode, allCands);
 }
 
 // ── Exportar métricas a CSV ───────────────────────────────────
